@@ -4,13 +4,12 @@
 
 ![TelePlay Banner](files/app_banner.png)
 
-Stream and manage your Telegram files on any device — TV, Mobile, or Browser — **without downloading the entire file**. TelePlay uses Telegram as unlimited cloud storage and streams content on-demand at high speed using its **multi-client parallel download** technology. Upload via a Telegram Bot, organize through a Web App, and watch anywhere.
+Stream and manage your Telegram files from any browser — **without downloading the entire file**. TelePlay uses Telegram as unlimited cloud storage and streams content on-demand at high speed using its **multi-client parallel download** technology. Upload via a Telegram Bot, organize through the Web App, and watch anywhere.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-green.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)
 ![React](https://img.shields.io/badge/React-18-61dafb.svg)
-![Kotlin](https://img.shields.io/badge/Kotlin-Compose_TV-7f52ff.svg)
 
 ---
 
@@ -33,15 +32,6 @@ Stream and manage your Telegram files on any device — TV, Mobile, or Browser �
 - Three login methods (direct link, login code, [remote authorization](docs/SETUP.md#31-web-interface))
 - Responsive — works on desktop and mobile
 
-### 📺 Android TV & Mobile App — [Installation Guide](docs/SETUP.md#32-android-tv--mobile)
-
-- Designed for TV with D-Pad / remote control navigation
-- **Continue Watching** and **Recently Added** rows on the home screen
-- Full-screen ExoPlayer playback with transport controls
-- Download files for offline playback (Mobile)
-- Picture-in-Picture mode (Mobile)
-- Watch progress automatically synced with the server
-
 ### ⚡ Platform — [Architecture Overview](docs/ARCHITECTURE.md)
 
 - **Zero local storage** — all files live on Telegram's unlimited cloud
@@ -56,7 +46,7 @@ Stream and manage your Telegram files on any device — TV, Mobile, or Browser �
 ## 🏗️ How It Works
 
 ```
-  You                Telegram Cloud              Your Server              Your Devices
+  You                Telegram Cloud              Your Server              Your Browser
   ───                ──────────────              ───────────              ────────────
    │                                                  │
    │  1. Send file to Bot ──────────────────────────► │
@@ -65,7 +55,7 @@ Stream and manage your Telegram files on any device — TV, Mobile, or Browser �
    │                                                  │ 3. Saves metadata
    │                                                  │    to Database
    │                                                  │
-   │  4. Open Web / TV App ◄──────────────────────────│
+   │  4. Open Web App    ◄──────────────────────────  │
    │                                                  │
    │  5. Press Play ──────────────────────────────► │
    │                         6. Fetches chunks   ◄──  │ (from Telegram)
@@ -87,25 +77,9 @@ Your files are **never stored on your server** — TelePlay streams them directl
   <img src="files/web_app_login_screen.png" width="32%" />
 </p>
 
-### 📺 Android TV
-
-<p align="center">
-  <img src="files/tv_home_screen.png" width="32%" />
-  <img src="files/tv_player_screen.png" width="32%" />
-  <img src="files/tv_login_screen.png" width="32%" />
-</p>
-
-### 📱 Mobile App
-
-<p align="center">
-  <img src="files/mobile_home_screen.png" width="32%" />
-  <img src="files/mobile_player_screen.png" width="32%" />
-  <img src="files/mobile_downloads_screen.png" width="32%" />
-</p>
-
 ---
 
-## � Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites — [Detailed Steps](docs/DEPLOYMENT.md#-step-1-get-telegram-credentials)
 
@@ -163,26 +137,6 @@ That's it! Your services are now running:
 
 ---
 
-## 📱 Android TV & Mobile App
-
-**Download the APK** from the [Releases](../../releases) page:
-
-| APK         | Best For                               |
-| :---------- | :------------------------------------- |
-| `arm64-v8a` | Modern TV boxes, phones, NVIDIA Shield |
-| `universal` | Any device (if unsure, use this one)   |
-
-**Setup:**
-
-1. Install the APK on your device.
-2. Enter your Server URL (e.g., `http://192.168.1.100`).
-3. A 6-digit code will appear — send `/login CODE` to your bot.
-4. Done! Browse and stream your library.
-
-> **For APK signing and release automation**, see the **[Releasing Guide](docs/RELEASING.md)**.
-
----
-
 ## ⚙️ Environment Variables
 
 | Variable                      | Required | Description                                                                                          |
@@ -215,7 +169,6 @@ That's it! Your services are now running:
 | **Database** | PostgreSQL (prod) / SQLite (dev), SQLAlchemy 2.0 |
 | **Auth**     | JWT (Access + Refresh Tokens)                    |
 | **Web**      | React 18, TypeScript, Vite                       |
-| **Android**  | Kotlin, Jetpack Compose for TV, ExoPlayer        |
 | **Deploy**   | Docker, Docker Compose, Nginx                    |
 
 ---
@@ -226,7 +179,7 @@ That's it! Your services are now running:
 teleplay/
 ├── backend/                  # Python backend (FastAPI + Bot)
 │   ├── app/
-│   │   ├── routers/          # API endpoints (auth, files, folders, streaming, tv)
+│   │   ├── routers/          # API endpoints (auth, files, folders, streaming)
 │   │   ├── bot.py            # Telegram bot command handlers
 │   │   ├── streaming.py      # Multi-client parallel streaming engine
 │   │   ├── models.py         # SQLAlchemy ORM models
@@ -239,13 +192,10 @@ teleplay/
 │   │   ├── lib/api.ts        # API client & hooks
 │   │   └── App.tsx           # Main app with routing
 │   └── Dockerfile
-├── android/                  # Android TV & Mobile app
-│   └── app/src/main/java/    # Kotlin (Compose + ExoPlayer)
 ├── docs/                     # Documentation
 │   ├── ARCHITECTURE.md       # Technical deep-dive
 │   ├── DEPLOYMENT.md         # Deployment guide
-│   ├── SETUP.md              # Setup & usage guide
-│   └── RELEASING.md          # APK release process
+│   └── SETUP.md              # Setup & usage guide
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -273,10 +223,6 @@ npm install
 npm run dev
 ```
 
-### Android
-
-Open the `android/` folder in Android Studio and build.
-
 ---
 
 ## 🔒 Security — [Details](docs/ARCHITECTURE.md#-security)
@@ -297,7 +243,6 @@ Open the `android/` folder in Android Studio and build.
 | **[Setup & Usage](docs/SETUP.md)**       | How the app works, bot commands, login methods, and troubleshooting   |
 | **[Deployment](docs/DEPLOYMENT.md)**     | Docker, VPS, Railway, Render, and CapRover deployment                 |
 | **[Architecture](docs/ARCHITECTURE.md)** | Technical deep-dive: streaming engine, API endpoints, database models |
-| **[Releasing](docs/RELEASING.md)**       | APK build automation and signing via GitHub Actions                   |
 
 ---
 
@@ -322,5 +267,3 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 - [PyroTGFork](https://github.com/TelegramPlayGround/pyrogram) — Telegram MTProto library
 - [FastAPI](https://fastapi.tiangolo.com/) — Modern Python web framework
 - [React](https://react.dev/) — Frontend library
-- [Jetpack Compose for TV](https://developer.android.com/training/tv/compose) — Android TV UI toolkit
-- [ExoPlayer](https://github.com/google/ExoPlayer) — Android media player

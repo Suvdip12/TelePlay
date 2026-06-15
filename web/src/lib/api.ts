@@ -257,6 +257,81 @@ export const useVerifyLoginCode = () => {
 
 // ============== Files Hooks ==============
 
+export interface UploadProgress {
+    loaded: number;
+    total: number;
+    percent: number;
+    fileName: string;
+}
+
+export const useUploadFile = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ 
+            file, 
+            folderId, 
+            onProgress 
+        }: { 
+            file: globalThis.File; 
+            folderId?: number | null; 
+            onProgress?: (progress: UploadProgress) => void;
+        }) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const params = new URLSearchParams();
+            if (folderId !== null && folderId !== undefined) {
+                params.append('folder_id', String(folderId));
+            }
+            
+            const token = localStorage.getItem('access_token');
+            const url = `/api/files/upload${params.toString() ? '?' + params.toString() : ''}`;
+            
+            // Use XMLHttpRequest for progress tracking
+            return new Promise<TelegramFile>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', url);
+                
+                if (token) {
+                    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                }
+                
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable && onProgress) {
+                        onProgress({
+                            loaded: e.loaded,
+                            total: e.total,
+                            percent: Math.round((e.loaded / e.total) * 100),
+                            fileName: file.name,
+                        });
+                    }
+                };
+                
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(JSON.parse(xhr.responseText));
+                    } else {
+                        try {
+                            const err = JSON.parse(xhr.responseText);
+                            reject(new Error(err.detail || 'Upload failed'));
+                        } catch {
+                            reject(new Error(`Upload failed (${xhr.status})`));
+                        }
+                    }
+                };
+                
+                xhr.onerror = () => reject(new Error('Network error during upload'));
+                xhr.send(formData);
+            });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['files'] });
+            queryClient.invalidateQueries({ queryKey: ['folders'] });
+            queryClient.invalidateQueries({ queryKey: ['storage'] });
+        },
+    });
+};
+
 export const useFiles = (folderId?: number | null, fileType?: string, search?: string, page = 1) => {
     return useQuery({
         queryKey: ['files', folderId, fileType, search, page],

@@ -1,6 +1,6 @@
 # 📖 TelePlay: Setup & Usage Guide
 
-Welcome to **TelePlay**! This guide covers everything from the core concepts to using the bot and apps.
+Welcome to **TelePlay**! This guide covers everything from the core concepts to using the bot and the web app.
 
 ---
 
@@ -11,7 +11,7 @@ TelePlay is a self-hosted media center that turns Telegram into your personal "N
 1.  **Telegram Storage**: All your media files (Videos, Movies, Music) are stored in your own **Private Telegram Channel**. Telegram provides unlimited storage for files up to 2GB each.
 2.  **Database**: A small database (SQLite or PostgreSQL) keeps track of your file names, folders, and watch progress.
 3.  **Backend Server**: This is the "brain" of the app. It communicates with Telegram, manages your database, and streams the media directly to your player.
-4.  **Clients**: You interact with your library through the **Telegram Bot** (for management), the **Web / Android App** (for management and watching), or the **Android TV App** (for watching).
+4.  **Clients**: You interact with your library through the **Telegram Bot** (for management) and the **Web App** (for management and watching).
 
 ---
 
@@ -44,7 +44,7 @@ The bot is your command center for uploading and managing media.
 | `/start`   | Open the main menu and Web Link.           |
 | `/myfiles` | List your recent 10 uploads.               |
 | `/folders` | Browse and manage your folders.            |
-| `/login`   | Get a code to log in on Android TV or Web. |
+| `/login`   | Get a code to log in on the Web App.       |
 | `/help`    | Detailed list of all features.             |
 
 ### 2.3 Managing Files
@@ -57,7 +57,7 @@ When you upload a file or use `/file <id>`, you get interactive buttons to:
 
 ---
 
-## 📺 Part 3: Watching Content
+## 🌐 Part 3: Using the Web App
 
 ### 3.1 Web Interface
 
@@ -75,23 +75,6 @@ You can log in to the Web Interface using three different methods:
   3. Send `/login ABCDEF` to your Telegram bot.
   4. The web app will log you in automatically!
 
-### 3.2 Android TV / Mobile
-
-1. **Download the APK**:
-   - Go to the **[GitHub Releases](../../releases)** page.
-   - Download the latest `.apk` file (use `universal` if unsure, or `arm64-v8a` for most modern devices).
-2. **Installation**:
-   - Transfer the APK to your device (using a USB drive or cloud storage).
-   - Use a File Manager on your TV to open the APK.
-   - **Troubleshooting Installation Errors**:
-     - **"App not installed"**: You might need to enable **"Install from Unknown Sources"** in your TV's Security settings.
-     - **"Invalid Package"**: Ensure you downloaded the correct version for your device's architecture.
-3. **Connect to Server**:
-   - Enter your **Server URL** (found in [DEPLOYMENT.md](DEPLOYMENT.md#🔗-how-to-find-your-server-url)).
-   - **Tip**: Do NOT use `localhost`. Use your PC's local IP (e.g., `http://192.168.1.100`).
-4. **Login**:
-   - The app will show a 6-digit code.
-   - Send `/login 123456` to your Telegram bot. Done!
 
 ---
 
@@ -121,5 +104,5 @@ _Note: Every helper bot must be an Admin in your Storage Channel._
 
 ## ❓ Common Issues
 
-- **TV can't connect**: Ensure your PC's firewall allows port 80 and 8000.
+- **Can't connect**: Ensure your PC's firewall allows port 80 and 8000.
 - **Blank Web Page**: Check `docker compose logs backend` for database errors.

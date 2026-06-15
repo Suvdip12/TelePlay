@@ -19,7 +19,7 @@ logging.getLogger("pyrogram").setLevel(logging.INFO)
 from .config import get_settings
 from .database import init_db
 from .telegram import start_telegram_client, stop_telegram_client
-from .routers import files_router, folders_router, streaming_router, auth_router, tv_router
+from .routers import files_router, folders_router, streaming_router, auth_router
 
 # Import bot to register handlers
 from . import bot  # noqa
@@ -108,7 +108,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
 app.include_router(folders_router, prefix="/api")
 app.include_router(streaming_router, prefix="/api")
-app.include_router(tv_router, prefix="/api")
+
 
 
 

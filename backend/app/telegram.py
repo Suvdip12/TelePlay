@@ -48,6 +48,11 @@ logger = logging.getLogger(__name__)
 
 async def start_one_client(i, c):
     try:
+        c.loop = asyncio.get_running_loop()
+        c.lock = asyncio.Lock()
+        if hasattr(c, "storage") and c.storage:
+            c.storage.loop = asyncio.get_running_loop()
+            c.storage.lock = asyncio.Lock()
         await c.start()
         me = await c.get_me()
         label = "Main" if i == 0 else "Helper"

@@ -49,30 +49,6 @@ build/
 .next/
 out/
 
-# ============== Android ==============
-# Gradle
-.gradle/
-*.gradle.kts.swp
-local.properties
-
-# Build outputs
-android/app/build/
-android/build/
-android/app/debug
-*.apk
-*.aab
-*.dex
-*.class
-
-# Android Studio
-.idea/
-*.iml
-*.hprof
-
-# Signing
-*.jks
-*.keystore
-release/
 
 # ============== IDE ==============
 .vscode/

@@ -1,6 +1,6 @@
 # 🏗️ TelePlay — Architecture & Technical Overview
 
-A self-hosted media streaming platform that uses Telegram as its storage backend. Upload files via a Telegram Bot, organize them through a Web App, and stream them to any device — including Android TV.
+A self-hosted media streaming platform that uses Telegram as its storage backend. Upload files via a Telegram Bot, organize them through a Web App, and stream them in your browser.
 
 ---
 
@@ -17,12 +17,12 @@ A self-hosted media streaming platform that uses Telegram as its storage backend
 1.  **Upload**: User sends a media file to the Telegram Bot.
 2.  **Store**: The bot forwards the file to a private Telegram Channel. The file is now permanently stored on Telegram's cloud servers.
 3.  **Catalog**: The backend saves metadata (file name, size, type, Telegram message ID) into a relational database.
-4.  **Stream**: When a client (Web, TV, Mobile) requests a file, the backend fetches the data from Telegram in chunks and streams it via HTTP with full range-request support for seeking.
+4.  **Stream**: When the web client requests a file, the backend fetches the data from Telegram in chunks and streams it via HTTP with full range-request support for seeking.
 
 ### Key Benefits
 
 - **Zero Local Storage**: All files live on Telegram's cloud (up to 2GB per file).
-- **Cross-Platform**: Access from Web Browser, Android TV, and Android Mobile.
+- **Cross-Platform**: Access from any Web Browser on desktop or mobile.
 - **Organized Library**: Folders, search, rename, and batch operations via Bot and Web.
 - **Multi-User**: Each Telegram user gets their own isolated library.
 - **High-Speed Downloads**: Optional multi-bot parallelism for faster streaming.
@@ -52,13 +52,13 @@ A self-hosted media streaming platform that uses Telegram as its storage backend
 │                   │ (PostgreSQL /   │                               │
 │                   │    SQLite)      │                               │
 │                   └─────────────────┘                               │
-└────────────┬──────────────┬───────────────────┬─────────────────────┘
-             │              │                   │
-             ▼              ▼                   ▼
-      ┌────────────┐ ┌────────────┐      ┌────────────┐
-      │  Web App   │ │ Android TV │      │  Android   │
-      │  (React)   │ │  (Kotlin)  │      │  Mobile    │
-      └────────────┘ └────────────┘      └────────────┘
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+                      ┌────────────┐
+                      │  Web App   │
+                      │  (React)   │
+                      └────────────┘
 ```
 
 ---
@@ -73,7 +73,6 @@ A self-hosted media streaming platform that uses Telegram as its storage backend
 | **ORM**        | SQLAlchemy 2.0 (async)                          |
 | **Auth**       | JWT (Access + Refresh Tokens)                   |
 | **Web App**    | React 18, TypeScript, Vite                      |
-| **Android**    | Kotlin, Jetpack Compose for TV, ExoPlayer       |
 | **Deployment** | Docker, Docker Compose, Nginx                   |
 
 ### Why MTProto over Bot API?
@@ -96,8 +95,7 @@ teleplay/
 │   │   │   ├── auth.py          #   Login, token refresh, logout
 │   │   │   ├── files.py         #   File CRUD, rename, move, batch delete
 │   │   │   ├── folders.py       #   Folder CRUD, nested folders
-│   │   │   ├── streaming.py     #   File streaming & download endpoints
-│   │   │   └── tv.py            #   TV-optimized browse, search, continue watching
+│   │   │   └── streaming.py     #   File streaming & download endpoints
 │   │   ├── auth.py              # JWT token generation & verification
 │   │   ├── bot.py               # Telegram Bot handlers (commands, file uploads)
 │   │   ├── config.py            # Pydantic Settings (env vars)
@@ -124,17 +122,13 @@ teleplay/
 │   ├── Dockerfile
 │   └── nginx.conf               # SPA routing for production
 │
-├── android/                     # Android TV & Mobile App
-│   └── app/src/main/java/       # Kotlin source (Compose, ExoPlayer, ViewModels)
-│
 ├── docs/                        # Documentation
 │   ├── ARCHITECTURE.md          # This file
 │   ├── DEPLOYMENT.md            # Deployment guide (Docker, Cloud, VPS)
-│   ├── SETUP.md                 # User-facing setup & usage guide
-│   └── RELEASING.md             # APK build & release process
+│   └── SETUP.md                 # User-facing setup & usage guide
 │
 ├── docker-compose.yml           # Multi-container orchestration
-├── Dockerfile                   # Monolith build for PaaS (Railway, Render)
+├── Dockerfile                   # Single-container build for PaaS (Railway, Render)
 ├── captain-definition           # CapRover deployment config
 └── .env.example                 # Root environment template
 ```
@@ -152,7 +146,7 @@ The bot is the primary interface for uploading and managing files. It runs withi
 - **Authorization Middleware** (`group=-2`): Checks `AUTH_USERS` env var. If set, only listed Telegram IDs can interact with the bot.
 - **File Handling**: Receives video, audio, documents, and photos. Forwards them to the storage channel and saves metadata to the database.
 - **Inline Keyboards**: Interactive buttons for rename, move-to-folder, delete, and opening the web app.
-- **Login System**: Generates 6-digit codes for authenticating Web and TV clients.
+- **Login System**: Generates 6-digit codes for authenticating Web clients.
 - **Deep Links**: `/start <code>` automatically verifies login codes from other apps.
 
 **Bot Commands:**
@@ -210,16 +204,6 @@ GET /api/stream/{file_id}      → Stream file with HTTP Range support
 GET /api/download/{file_id}    → Download file with Content-Disposition
 GET /api/thumbnail/{file_id}   → Get file thumbnail
 GET /api/public/{token}        → Stream via a signed public link
-```
-
-#### TV (`routers/tv.py`)
-
-```
-GET /api/tv/browse             → Optimized content browsing for TV UI
-GET /api/tv/continue           → "Continue Watching" list (with progress)
-GET /api/tv/recent             → Recently added files
-GET /api/tv/search?q=          → Search across all user files
-POST /api/tv/progress          → Save watch progress
 ```
 
 ### 3. Streaming Engine (`streaming.py`)
@@ -341,7 +325,7 @@ Uses SQLAlchemy 2.0 with async sessions.
 
 ### 5. Services (`services.py`)
 
-A shared query layer to avoid code duplication between `files.py`, `folders.py`, and `tv.py`. Contains reusable functions for fetching files with common filters (user, folder, type, search).
+A shared query layer to avoid code duplication between `files.py` and `folders.py`. Contains reusable functions for fetching files with common filters (user, folder, type, search).
 
 ---
 
@@ -370,21 +354,6 @@ Built with **React 18 + TypeScript + Vite**. Styled with vanilla CSS.
 
 ---
 
-## 📺 Android TV & Mobile App
-
-Built with **Kotlin + Jetpack Compose** (with Compose for TV extensions).
-
-**Features:**
-
-- **Home Screen**: "Continue Watching" and "Recently Added" rows.
-- **Folder Browsing**: Navigate the folder hierarchy.
-- **ExoPlayer Integration**: Full-screen playback with transport controls.
-- **Picture-in-Picture** (PiP): Watch while browsing (Mobile).
-- **Watch Progress**: Automatically saved and synced with the server.
-- **D-Pad Navigation**: Full remote control support for TV.
-- **Offline Downloads**: Download files for local playback (Mobile).
-- **Login**: 6-digit code displayed on screen, verified via bot.
-
 ---
 
 ## 🔐 Security
@@ -404,7 +373,7 @@ Built with **Kotlin + Jetpack Compose** (with Compose for TV extensions).
 ```
 ┌──────────┐          ┌──────────┐          ┌──────────┐
 │  Client   │          │ Backend  │          │   Bot    │
-│ (Web/TV)  │          │  Server  │          │          │
+│  (Web)    │          │  Server  │          │          │
 └─────┬─────┘          └─────┬────┘          └─────┬────┘
       │  1. Generate Code    │                     │
       │─────────────────────►│                     │
@@ -457,6 +426,5 @@ A monolith `Dockerfile` (root) bundles the backend and web app into a single con
 
 ## 📚 Related Documentation
 
-- **[Setup & Usage Guide](SETUP.md)** — How the app works, how to use the bot, and how to connect clients.
+- **[Setup & Usage Guide](SETUP.md)** — How the app works, how to use the bot, and how to connect.
 - **[Deployment Guide](DEPLOYMENT.md)** — Step-by-step instructions for Local, VPS, Railway, Render, and CapRover.
-- **[Releasing Guide](RELEASING.md)** — How to build and publish Android APKs via GitHub Actions.

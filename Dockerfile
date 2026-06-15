@@ -1,4 +1,4 @@
-# Dockerfile for PaaS Deployment (Render, Railway, Heroku)
+# Dockerfile for Web Deployment (Render, Railway, Heroku)
 # Builds both Frontend and Backend in a single image.
 
 # ----------------------------

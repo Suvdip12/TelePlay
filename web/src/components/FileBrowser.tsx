@@ -2,8 +2,8 @@
  * Main FileBrowser component - the core of the web interface
  */
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { FolderPlus, Grid, List, Search, ChevronRight, Home, RefreshCw, Clipboard, ArrowUp, Film, Music, Image as ImageIcon, FileText, Menu } from 'lucide-react';
-import { useFiles, useFolders, useUpdateFile, useUpdateFolder, useDeleteFolder, useDeleteFiles, useMoveFiles, TelegramFile, Folder, useRecentFiles, useContinueWatching, useDeleteFolders, useMoveFolders } from '../lib/api';
+import { FolderPlus, Grid, List, Search, ChevronRight, Home, RefreshCw, Clipboard, ArrowUp, Film, Music, Image as ImageIcon, FileText, Menu, Upload, X } from 'lucide-react';
+import { useFiles, useFolders, useUpdateFile, useUpdateFolder, useDeleteFolder, useDeleteFiles, useMoveFiles, TelegramFile, Folder, useRecentFiles, useContinueWatching, useDeleteFolders, useMoveFolders, useUploadFile, UploadProgress, formatFileSize } from '../lib/api';
 import { useAppStore } from '../lib/store';
 import FileCard from './FileCard';
 import FolderCard from './FolderCard';
@@ -112,6 +112,14 @@ export default function FileBrowser() {
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     const selectionStart = useRef({ x: 0, y: 0 });
 
+    // Upload state
+    const uploadMutation = useUploadFile();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDragOver, setIsDragOver] = useState(false);
+    const [uploadQueue, setUploadQueue] = useState<{ file: globalThis.File; progress: UploadProgress | null; status: 'pending' | 'uploading' | 'done' | 'error'; error?: string }[]>([]);
+    const [showUploadPanel, setShowUploadPanel] = useState(false);
+    const dragCounter = useRef(0);
+
     // handle refresh
     const handleRefresh = useCallback(() => {
         if (activeSection === 'files') {
@@ -123,6 +131,85 @@ export default function FileBrowser() {
             refetchCW();
         }
     }, [activeSection, refetchFiles, refetchFolders, refetchRecent, refetchCW]);
+
+    // Upload handlers
+    const processUploadQueue = useCallback(async (files: globalThis.File[]) => {
+        const items = files.map(f => ({ file: f, progress: null as UploadProgress | null, status: 'pending' as const }));
+        setUploadQueue(prev => [...prev, ...items]);
+        setShowUploadPanel(true);
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            setUploadQueue(prev => prev.map((item, idx) => 
+                item.file === file ? { ...item, status: 'uploading' as const } : item
+            ));
+
+            try {
+                await uploadMutation.mutateAsync({
+                    file,
+                    folderId: currentFolderId,
+                    onProgress: (progress) => {
+                        setUploadQueue(prev => prev.map(item => 
+                            item.file === file ? { ...item, progress } : item
+                        ));
+                    },
+                });
+                setUploadQueue(prev => prev.map(item => 
+                    item.file === file ? { ...item, status: 'done' as const, progress: { loaded: 1, total: 1, percent: 100, fileName: file.name } } : item
+                ));
+                addToast(`Uploaded ${file.name}`, 'success');
+            } catch (err: any) {
+                setUploadQueue(prev => prev.map(item => 
+                    item.file === file ? { ...item, status: 'error' as const, error: err.message } : item
+                ));
+                addToast(`Failed to upload ${file.name}`, 'error');
+            }
+        }
+
+        // Reset accumulated files for re-fetch
+        setPage(1);
+        setAllFiles([]);
+        setHasMore(true);
+        handleRefresh();
+    }, [currentFolderId, uploadMutation, addToast, handleRefresh]);
+
+    const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length > 0) processUploadQueue(files);
+        e.target.value = '';
+    }, [processUploadQueue]);
+
+    const handleDragEnter = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current++;
+        if (e.dataTransfer.types.includes('Files')) {
+            setIsDragOver(true);
+        }
+    }, []);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current--;
+        if (dragCounter.current === 0) {
+            setIsDragOver(false);
+        }
+    }, []);
+
+    const handleDragOverEvent = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+    }, []);
+
+    const handleDropFiles = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current = 0;
+        setIsDragOver(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0) processUploadQueue(files);
+    }, [processUploadQueue]);
 
     // Handle drag-drop file to folder
     const handleFileDrop = useCallback(async (fileId: number, folderId: number) => {
@@ -602,14 +689,30 @@ export default function FileBrowser() {
                         )}
 
                         {activeSection === 'files' && (
-                            <button
-                                onClick={() => setShowNewFolder(true)}
-                                className="ml-2 btn-primary py-1.5 px-3 text-sm flex items-center gap-2 shadow-lg shadow-primary-500/20"
-                            >
-                                <FolderPlus className="w-4 h-4" />
-                                <span className="hidden sm:inline">New Folder</span>
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="ml-2 btn-secondary py-1.5 px-3 text-sm flex items-center gap-2"
+                                >
+                                    <Upload className="w-4 h-4" />
+                                    <span className="hidden sm:inline">Upload</span>
+                                </button>
+                                <button
+                                    onClick={() => setShowNewFolder(true)}
+                                    className="btn-primary py-1.5 px-3 text-sm flex items-center gap-2 shadow-lg shadow-primary-500/20"
+                                >
+                                    <FolderPlus className="w-4 h-4" />
+                                    <span className="hidden sm:inline">New Folder</span>
+                                </button>
+                            </>
                         )}
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={handleFileInputChange}
+                        />
                     </div>
                 </header>
 
@@ -622,9 +725,23 @@ export default function FileBrowser() {
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                     tabIndex={0}
-                    // Prevent default drag behaviors on container
-                    onDragOver={(e) => e.preventDefault()}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={handleDragOverEvent}
+                    onDrop={handleDropFiles}
                 >
+                    {/* Drag & Drop Overlay */}
+                    {isDragOver && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-dark-950/80 backdrop-blur-sm border-2 border-dashed border-primary-500 rounded-xl m-4 pointer-events-none">
+                            <div className="text-center animate-scale-in">
+                                <div className="w-20 h-20 rounded-2xl bg-primary-500/20 flex items-center justify-center mx-auto mb-4 border border-primary-500/30">
+                                    <Upload className="w-10 h-10 text-primary-400" />
+                                </div>
+                                <h3 className="text-xl font-bold text-white mb-1">Drop files here</h3>
+                                <p className="text-dark-400">Files will be uploaded to the current folder</p>
+                            </div>
+                        </div>
+                    )}
                     {isLoading && !displayFiles ? (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 animate-fade-in">
                             {[...Array(10)].map((_, i) => (
@@ -667,12 +784,19 @@ export default function FileBrowser() {
                             ) : (
                                 <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-fade-in">
                                     <div className="w-24 h-24 rounded-3xl bg-dark-800/50 flex items-center justify-center border border-white/[0.04] mb-6 shadow-2xl">
-                                        <ArrowUp className="w-10 h-10 text-dark-600 animate-bounce" />
+                                        <Upload className="w-10 h-10 text-dark-600" />
                                     </div>
-                                    <h3 className="text-xl font-bold text-white mb-2">No files found</h3>
-                                    <p className="text-dark-400 max-w-xs">
-                                        Upload files by sending them to the Telegram bot
+                                    <h3 className="text-xl font-bold text-white mb-2">No files yet</h3>
+                                    <p className="text-dark-400 max-w-xs mb-4">
+                                        Drag & drop files here, click Upload, or send files to your Telegram bot
                                     </p>
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="btn-primary py-2.5 px-6 text-sm flex items-center gap-2"
+                                    >
+                                        <Upload className="w-4 h-4" />
+                                        Upload Files
+                                    </button>
                                 </div>
                             )}
 
@@ -708,6 +832,60 @@ export default function FileBrowser() {
             </main>
             
             <Toasts />
+
+            {/* Upload Progress Panel */}
+            {showUploadPanel && uploadQueue.length > 0 && (
+                <div className="fixed bottom-6 right-6 w-96 max-h-80 glass-panel shadow-2xl z-50 animate-slide-up overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+                        <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                            <Upload className="w-4 h-4 text-primary-400" />
+                            Uploads ({uploadQueue.filter(u => u.status === 'done').length}/{uploadQueue.length})
+                        </h4>
+                        <button
+                            onClick={() => {
+                                setShowUploadPanel(false);
+                                if (uploadQueue.every(u => u.status === 'done' || u.status === 'error')) {
+                                    setUploadQueue([]);
+                                }
+                            }}
+                            className="p-1 rounded hover:bg-white/[0.08] text-dark-400 hover:text-white transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <div className="overflow-y-auto max-h-60 no-scrollbar">
+                        {uploadQueue.map((item, i) => (
+                            <div key={i} className="px-4 py-2.5 border-b border-white/[0.04] last:border-0">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs text-white truncate max-w-[240px]">{item.file.name}</span>
+                                    <span className="text-xs text-dark-400 shrink-0 ml-2">
+                                        {item.status === 'done' ? '✓' : 
+                                         item.status === 'error' ? '✗' : 
+                                         item.status === 'uploading' ? `${item.progress?.percent || 0}%` : 
+                                         'Waiting'}
+                                    </span>
+                                </div>
+                                <div className="h-1 bg-dark-800 rounded-full overflow-hidden">
+                                    <div 
+                                        className={`h-full rounded-full transition-all duration-300 ${
+                                            item.status === 'done' ? 'bg-emerald-500' :
+                                            item.status === 'error' ? 'bg-red-500' :
+                                            'bg-gradient-to-r from-primary-500 to-primary-400'
+                                        }`}
+                                        style={{ width: `${item.status === 'done' ? 100 : item.status === 'error' ? 100 : item.progress?.percent || 0}%` }}
+                                    />
+                                </div>
+                                {item.status === 'error' && (
+                                    <p className="text-xs text-red-400 mt-1">{item.error}</p>
+                                )}
+                                {item.status === 'uploading' && item.progress && (
+                                    <p className="text-xs text-dark-500 mt-0.5">{formatFileSize(item.progress.loaded)} / {formatFileSize(item.progress.total)}</p>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Modals */}
             {showNewFolder && (

@@ -1,8 +1,11 @@
 """
 File management API endpoints.
 """
+import os
+import tempfile
+import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File as FastAPIFile
 import secrets
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
@@ -12,7 +15,7 @@ from ..database import get_db
 from ..models import File, User, WatchProgress
 from ..schemas import FileResponse, FileListResponse, FileUpdate, WatchProgressUpdate
 from ..auth import get_current_user
-from ..telegram import delete_from_storage_channel
+from ..telegram import tg_client, delete_from_storage_channel
 from ..config import get_settings
 from ..services import (
     escape_like, 
@@ -24,6 +27,145 @@ from ..services import (
 
 router = APIRouter(prefix="/files", tags=["Files"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+# Maximum upload size: 2GB (Telegram limit)
+MAX_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024
+
+
+def _guess_file_type(mime_type: str, filename: str) -> str:
+    """Guess file type from MIME type or extension."""
+    if mime_type:
+        if mime_type.startswith("video/"):
+            return "video"
+        elif mime_type.startswith("audio/"):
+            return "audio"
+        elif mime_type.startswith("image/"):
+            return "image"
+    
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    video_exts = {"mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v", "3gp"}
+    audio_exts = {"mp3", "flac", "aac", "ogg", "wav", "wma", "m4a", "opus"}
+    image_exts = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico"}
+    
+    if ext in video_exts:
+        return "video"
+    elif ext in audio_exts:
+        return "audio"
+    elif ext in image_exts:
+        return "image"
+    return "document"
+
+
+@router.post("/upload", response_model=FileResponse)
+async def upload_file(
+    file: UploadFile = FastAPIFile(...),
+    folder_id: Optional[int] = Query(None, description="Target folder ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload a file from the web interface.
+    The file is saved temporarily, sent to the Telegram storage channel,
+    then the temp file is removed and metadata is stored in the DB.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    
+    safe_name = sanitize_filename(file.filename)
+    mime = file.content_type or "application/octet-stream"
+    file_type = _guess_file_type(mime, safe_name)
+    
+    # Save to a temp file (Pyrogram needs a file path to send)
+    tmp_dir = os.path.join(tempfile.gettempdir(), "teleplay_uploads")
+    os.makedirs(tmp_dir, exist_ok=True)
+    tmp_path = os.path.join(tmp_dir, f"{secrets.token_hex(8)}_{safe_name}")
+    
+    try:
+        # Stream the upload to disk
+        file_size = 0
+        with open(tmp_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1MB chunks
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > MAX_UPLOAD_SIZE:
+                    raise HTTPException(status_code=413, detail="File too large. Maximum size is 2GB.")
+                f.write(chunk)
+        
+        if file_size == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+        
+        # Send to Telegram storage channel via the bot client
+        logger.info(f"Uploading {safe_name} ({file_size} bytes) to Telegram for user {current_user.id}")
+        
+        sent_msg = None
+        if file_type == "video":
+            sent_msg = await tg_client.send_video(
+                settings.telegram_storage_channel_id,
+                tmp_path,
+                file_name=safe_name,
+            )
+        elif file_type == "audio":
+            sent_msg = await tg_client.send_audio(
+                settings.telegram_storage_channel_id,
+                tmp_path,
+                file_name=safe_name,
+            )
+        else:
+            sent_msg = await tg_client.send_document(
+                settings.telegram_storage_channel_id,
+                tmp_path,
+                file_name=safe_name,
+            )
+        
+        if not sent_msg:
+            raise HTTPException(status_code=500, detail="Failed to upload to Telegram")
+        
+        # Extract media info from the sent message
+        media = sent_msg.video or sent_msg.audio or sent_msg.document
+        if not media:
+            raise HTTPException(status_code=500, detail="Telegram did not return media info")
+        
+        # Save to database
+        db_file = File(
+            user_id=current_user.id,
+            folder_id=folder_id,
+            channel_message_id=sent_msg.id,
+            file_id=media.file_id,
+            file_unique_id=media.file_unique_id,
+            file_name=safe_name,
+            file_size=media.file_size or file_size,
+            mime_type=getattr(media, "mime_type", mime),
+            file_type=file_type,
+            duration=getattr(media, "duration", None),
+            width=getattr(media, "width", None),
+            height=getattr(media, "height", None),
+            thumbnail_file_id=media.thumbs[0].file_id if getattr(media, "thumbs", None) else None,
+        )
+        db.add(db_file)
+        await db.commit()
+        await db.refresh(db_file)
+        
+        # Re-fetch with relationships for the response
+        result = await db.execute(
+            select(File).where(File.id == db_file.id).options(selectinload(File.watch_progress))
+        )
+        db_file = result.scalar_one()
+        
+        logger.info(f"Upload complete: {safe_name} -> File ID {db_file.id}")
+        return FileResponse(**add_urls_to_file(db_file))
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upload failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    finally:
+        # Clean up temp file
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 @router.get("", response_model=FileListResponse)
