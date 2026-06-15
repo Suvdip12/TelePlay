@@ -3,7 +3,7 @@
  */
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { FolderPlus, Grid, List, Search, ChevronRight, Home, RefreshCw, Clipboard, ArrowUp, Film, Music, Image as ImageIcon, FileText, Menu, Upload, X } from 'lucide-react';
-import { useFiles, useFolders, useUpdateFile, useUpdateFolder, useDeleteFolder, useDeleteFiles, useMoveFiles, TelegramFile, Folder, useRecentFiles, useContinueWatching, useDeleteFolders, useMoveFolders, useUploadFile, UploadProgress, formatFileSize } from '../lib/api';
+import { useFiles, useFolders, useUpdateFile, useUpdateFolder, useDeleteFolder, useDeleteFiles, useMoveFiles, TelegramFile, Folder, useRecentFiles, useContinueWatching, useDeleteFolders, useMoveFolders, useUploadFile, useUploadLink, UploadProgress, formatFileSize } from '../lib/api';
 import { useAppStore } from '../lib/store';
 import FileCard from './FileCard';
 import FolderCard from './FolderCard';
@@ -13,6 +13,7 @@ import DeleteConfirmModal from './DeleteConfirmModal';
 import RenameModal from './RenameModal';
 import Sidebar from './Sidebar';
 import Toasts from './Toasts';
+import LinkUploadModal from './LinkUploadModal';
 
 export default function FileBrowser() {
     const {
@@ -57,6 +58,7 @@ export default function FileBrowser() {
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const [allFiles, setAllFiles] = useState<TelegramFile[]>([]);
+    const [showLinkUpload, setShowLinkUpload] = useState(false);
 
     // Data Fetching
     const { data: filesList, isLoading: filesLoading, refetch: refetchFiles } = useFiles(currentFolderId, fileTypeFilter || undefined, searchQuery || undefined, page);
@@ -698,6 +700,13 @@ export default function FileBrowser() {
                                     <span className="hidden sm:inline">Upload</span>
                                 </button>
                                 <button
+                                    onClick={() => setShowLinkUpload(true)}
+                                    className="ml-2 btn-secondary py-1.5 px-3 text-sm flex items-center gap-2 bg-primary-500/10 text-primary-300 border-primary-500/20 hover:bg-primary-500/20"
+                                >
+                                    <Clipboard className="w-4 h-4" />
+                                    <span className="hidden sm:inline">Upload from Link</span>
+                                </button>
+                                <button
                                     onClick={() => setShowNewFolder(true)}
                                     className="btn-primary py-1.5 px-3 text-sm flex items-center gap-2 shadow-lg shadow-primary-500/20"
                                 >
@@ -892,6 +901,15 @@ export default function FileBrowser() {
                 <NewFolderModal
                     parentId={currentFolderId}
                     onClose={() => setShowNewFolder(false)}
+                />
+            )}
+
+            {showLinkUpload && (
+                <LinkUploadModal
+                    folderId={currentFolderId}
+                    onClose={() => setShowLinkUpload(false)}
+                    addToast={addToast}
+                    onSuccess={handleRefresh}
                 />
             )}
 

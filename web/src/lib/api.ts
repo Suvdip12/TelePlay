@@ -332,6 +332,34 @@ export const useUploadFile = () => {
     });
 };
 
+export const useUploadLink = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({
+            url,
+            filename,
+            folderId
+        }: {
+            url: string;
+            filename?: string;
+            folderId?: number | null;
+        }) => {
+            const { data } = await api.post<TelegramFile>('/files/upload-link', {
+                url,
+                filename,
+                folder_id: folderId,
+            });
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['files'] });
+            queryClient.invalidateQueries({ queryKey: ['folders'] });
+            queryClient.invalidateQueries({ queryKey: ['storage'] });
+        },
+    });
+};
+
+
 export const useFiles = (folderId?: number | null, fileType?: string, search?: string, page = 1) => {
     return useQuery({
         queryKey: ['files', folderId, fileType, search, page],

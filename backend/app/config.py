@@ -4,6 +4,7 @@ Configuration settings loaded from environment variables.
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
+import os
 
 
 class Settings(BaseSettings):
@@ -42,11 +43,11 @@ class Settings(BaseSettings):
     telegram_storage_channel_id: int
     
     # Database
-    database_url: str
+    database_url: str = "sqlite:////app/session/teleplay.db" if os.path.exists("/app/session") else "sqlite:///./data/teleplay.db"
     
     
     # JWT
-    jwt_secret: str
+    jwt_secret: str = "your-super-secret-key-change-in-production"
     jwt_expiry_minutes: int = 10080  # 7 days for persistent sessions
     
     # Server

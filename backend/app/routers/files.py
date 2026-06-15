@@ -7,13 +7,16 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File as FastAPIFile
 import secrets
+import asyncio
+import urllib.request
+import urllib.parse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..models import File, User, WatchProgress
-from ..schemas import FileResponse, FileListResponse, FileUpdate, WatchProgressUpdate
+from ..schemas import FileResponse, FileListResponse, FileUpdate, WatchProgressUpdate, UploadLinkRequest
 from ..auth import get_current_user
 from ..telegram import tg_client, delete_from_storage_channel
 from ..config import get_settings
@@ -164,6 +167,160 @@ async def upload_file(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     finally:
         # Clean up temp file
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def download_file_sync(url: str, tmp_path: str) -> tuple[int, str, str]:
+    """Downloads a file synchronously and returns (file_size, mime_type, filename)."""
+    # Set a custom User-Agent to avoid being blocked by websites
+    req = urllib.request.Request(
+        url, 
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    )
+    
+    with urllib.request.urlopen(req) as response:
+        info = response.info()
+        mime_type = info.get_content_type()
+        
+        # Try to get filename from Content-Disposition header
+        cd = info.get("Content-Disposition", "")
+        filename = None
+        if "filename=" in cd:
+            for part in cd.split(";"):
+                if part.strip().startswith("filename="):
+                    filename = part.split("=")[1].strip('"\'')
+                    break
+        
+        if not filename:
+            # Fallback to URL path
+            parsed = urllib.parse.urlparse(url)
+            filename = os.path.basename(parsed.path)
+            
+        if not filename or "." not in filename:
+            filename = "downloaded_file.mp4"
+            
+        file_size = 0
+        with open(tmp_path, "wb") as f:
+            while True:
+                chunk = response.read(1024 * 1024) # 1MB chunk
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > MAX_UPLOAD_SIZE:
+                    raise Exception("File too large. Maximum size is 2GB.")
+                f.write(chunk)
+                
+        return file_size, mime_type, filename
+
+
+@router.post("/upload-link", response_model=FileResponse)
+async def upload_file_from_link(
+    req_body: UploadLinkRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Direct upload a video or other file via a direct link.
+    The file is downloaded temporarily, sent to the Telegram storage channel,
+    then the temp file is removed and metadata is stored in the DB.
+    """
+    url = req_body.url
+    folder_id = req_body.folder_id
+    
+    # Save to a temporary file
+    tmp_dir = os.path.join(tempfile.gettempdir(), "teleplay_uploads")
+    os.makedirs(tmp_dir, exist_ok=True)
+    tmp_path = os.path.join(tmp_dir, f"{secrets.token_hex(8)}_downloaded")
+    
+    try:
+        logger.info(f"Downloading from link: {url}")
+        loop = asyncio.get_running_loop()
+        file_size, mime, extracted_name = await loop.run_in_executor(
+            None, 
+            download_file_sync, 
+            url, 
+            tmp_path
+        )
+        
+        if file_size == 0:
+            raise HTTPException(status_code=400, detail="Empty file downloaded")
+            
+        # Use provided filename or the one extracted from URL/headers
+        final_name = req_body.filename or extracted_name
+        safe_name = sanitize_filename(final_name)
+        file_type = _guess_file_type(mime, safe_name)
+        
+        # Rename tmp file to include the correct extension/name so Pyrogram sets correct metadata
+        new_tmp_path = os.path.join(tmp_dir, f"{secrets.token_hex(8)}_{safe_name}")
+        os.rename(tmp_path, new_tmp_path)
+        tmp_path = new_tmp_path
+        
+        logger.info(f"Uploading {safe_name} ({file_size} bytes) from link to Telegram for user {current_user.id}")
+        
+        sent_msg = None
+        if file_type == "video":
+            sent_msg = await tg_client.send_video(
+                settings.telegram_storage_channel_id,
+                tmp_path,
+                file_name=safe_name,
+            )
+        elif file_type == "audio":
+            sent_msg = await tg_client.send_audio(
+                settings.telegram_storage_channel_id,
+                tmp_path,
+                file_name=safe_name,
+            )
+        else:
+            sent_msg = await tg_client.send_document(
+                settings.telegram_storage_channel_id,
+                tmp_path,
+                file_name=safe_name,
+            )
+            
+        if not sent_msg:
+            raise HTTPException(status_code=500, detail="Failed to upload to Telegram")
+            
+        # Extract media info
+        media = sent_msg.video or sent_msg.audio or sent_msg.document
+        if not media:
+            raise HTTPException(status_code=500, detail="Telegram did not return media info")
+            
+        # Save to database
+        db_file = File(
+            user_id=current_user.id,
+            folder_id=folder_id,
+            channel_message_id=sent_msg.id,
+            file_id=media.file_id,
+            file_unique_id=media.file_unique_id,
+            file_name=safe_name,
+            file_size=media.file_size or file_size,
+            mime_type=getattr(media, "mime_type", mime),
+            file_type=file_type,
+            duration=getattr(media, "duration", None),
+            width=getattr(media, "width", None),
+            height=getattr(media, "height", None),
+            thumbnail_file_id=media.thumbs[0].file_id if getattr(media, "thumbs", None) else None,
+        )
+        db.add(db_file)
+        await db.commit()
+        await db.refresh(db_file)
+        
+        # Re-fetch with relationships
+        result = await db.execute(
+            select(File).where(File.id == db_file.id).options(selectinload(File.watch_progress))
+        )
+        db_file = result.scalar_one()
+        
+        logger.info(f"Link upload complete: {safe_name} -> File ID {db_file.id}")
+        return FileResponse(**add_urls_to_file(db_file))
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Link upload failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Link upload failed: {str(e)}")
+    finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 

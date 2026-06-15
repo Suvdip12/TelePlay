@@ -171,5 +171,11 @@ class BotInfoResponse(BaseModel):
     server_version: str = "1.0.0"
 
 
+class UploadLinkRequest(BaseModel):
+    url: str
+    filename: Optional[str] = None
+    folder_id: Optional[int] = None
+
+
 # Resolve forward references
 FolderWithChildren.model_rebuild()
