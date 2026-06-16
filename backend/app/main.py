@@ -120,6 +120,33 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/health/debug")
+async def health_debug():
+    """Debug endpoint to verify env vars are loaded (values are masked)."""
+    def mask(val, show=4):
+        s = str(val)
+        if len(s) <= show:
+            return "****"
+        return s[:show] + "*" * (len(s) - show)
+    
+    from .telegram import tg_client, clients
+    
+    return {
+        "status": "healthy",
+        "telegram_api_id": mask(settings.telegram_api_id),
+        "telegram_api_hash": mask(settings.telegram_api_hash),
+        "telegram_bot_token": mask(settings.telegram_bot_token, 6),
+        "telegram_storage_channel_id": mask(settings.telegram_storage_channel_id, 5),
+        "telegram_helper_bot_tokens_raw": mask(settings.telegram_helper_bot_tokens_str) if settings.telegram_helper_bot_tokens_str else "(empty)",
+        "helper_bot_count": len(settings.telegram_helper_bot_tokens),
+        "total_clients": len(clients),
+        "main_client_connected": tg_client.is_connected if hasattr(tg_client, 'is_connected') else "unknown",
+        "web_base_url": settings.web_base_url,
+        "database_url": mask(settings.database_url, 10),
+        "server_port": settings.server_port,
+    }
+
+
 # ... imports ...
 
 # Mount static files (assets) - checking if directory exists first to avoid dev errors
