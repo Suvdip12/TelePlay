@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     
     # Server
     server_host: str = "0.0.0.0"
-    server_port: int = 8000
+    server_port: int = Field(8000, alias="PORT")
     
     # Concurrency
     telegram_client_concurrency: int = 3
@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        populate_by_name = True
 
 
 @lru_cache()
