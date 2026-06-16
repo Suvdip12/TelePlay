@@ -3,6 +3,7 @@ Telegram Bot handlers using PyroTGFork MTProto.
 Handles commands, file uploads, and inline callbacks.
 """
 
+
 import secrets
 import string
 from datetime import datetime, timedelta
@@ -1283,4 +1284,99 @@ async def deletefolder_command(client, message: Message):
             ]
         ])
     )
+
+
+@tg_client.on_message(filters.channel & (filters.video | filters.audio | filters.document))
+async def handle_channel_post(client, message: Message):
+    """Handle files uploaded directly/manually to the storage channel."""
+    def ids_match(id1, id2):
+        if id1 is None or id2 is None:
+            return False
+        return str(id1).replace("-100", "") == str(id2).replace("-100", "")
+
+    if not ids_match(message.chat.id, settings.telegram_storage_channel_id):
+        return
+
+    # Extract media from post
+    if message.video:
+        media = message.video
+        file_type = "video"
+    elif message.audio:
+        media = message.audio
+        file_type = "audio"
+    elif message.document:
+        media = message.document
+        file_type = "document"
+    else:
+        return
+
+    # Extract media metadata
+    raw_filename = getattr(media, "file_name", None) or f"{file_type}_{message.id}"
+    file_info = {
+        "file_id": media.file_id,
+        "file_unique_id": media.file_unique_id,
+        "file_name": sanitize_filename(raw_filename),
+        "file_size": media.file_size,
+        "mime_type": getattr(media, "mime_type", None),
+        "duration": getattr(media, "duration", None),
+        "width": getattr(media, "width", None),
+        "height": getattr(media, "height", None),
+        "thumbnail_file_id": media.thumbs[0].file_id if getattr(media, "thumbs", None) else None,
+    }
+
+    async with async_session() as db:
+        # Check if file is already registered
+        existing = await db.execute(
+            select(File).where(
+                (File.channel_message_id == message.id) | 
+                (File.file_unique_id == media.file_unique_id)
+            )
+        )
+        if existing.scalar_one_or_none():
+            return
+
+        # Determine target user
+        target_user_id = None
+        auth_users = settings.auth_users
+        if auth_users:
+            for tg_id in auth_users:
+                result = await db.execute(select(User).where(User.telegram_id == tg_id))
+                user = result.scalar_one_or_none()
+                if user:
+                    target_user_id = user.id
+                    break
+            
+            # If authorized user is not in database, create one
+            if not target_user_id:
+                user = User(telegram_id=auth_users[0])
+                db.add(user)
+                await db.commit()
+                await db.refresh(user)
+                target_user_id = user.id
+
+        # If still no user (e.g. auth_users is empty), get the first user in DB
+        if not target_user_id:
+            result = await db.execute(select(User).order_by(User.id))
+            user = result.scalar_one_or_none()
+            if user:
+                target_user_id = user.id
+
+        # If absolutely no user exists at all, we cannot save the file
+        if not target_user_id:
+            return
+
+        # Save to database
+        file = File(
+            user_id=target_user_id,
+            channel_message_id=message.id,
+            file_type=file_type,
+            **file_info
+        )
+        db.add(file)
+        await db.commit()
+
+
+print("[BOT] Dispatcher groups after registration:", list(tg_client.dispatcher.groups.keys()), flush=True)
+
+
 

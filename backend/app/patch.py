@@ -15,6 +15,42 @@ class PatchedClient(PyroClient):
     def __init__(self, *args, **kwargs):
         self.listeners: Dict[str, Dict[str, Union[asyncio.Future, Filter, None]]] = {}
         super().__init__(*args, **kwargs)
+        
+        # Patch dispatcher.add_handler and dispatcher.remove_handler to support adding/removing handlers
+        # when the event loop is not yet running (e.g. during module import / decorator registration).
+        from collections import OrderedDict
+        
+        original_add_handler = self.dispatcher.add_handler
+        def patched_dispatcher_add_handler(handler, group: int):
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+                
+            if running_loop and running_loop.is_running():
+                original_add_handler(handler, group)
+            else:
+                if group not in self.dispatcher.groups:
+                    self.dispatcher.groups[group] = []
+                    self.dispatcher.groups = OrderedDict(sorted(self.dispatcher.groups.items()))
+                self.dispatcher.groups[group].append(handler)
+        self.dispatcher.add_handler = patched_dispatcher_add_handler
+        
+        original_remove_handler = self.dispatcher.remove_handler
+        def patched_dispatcher_remove_handler(handler, group: int):
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+                
+            if running_loop and running_loop.is_running():
+                original_remove_handler(handler, group)
+            else:
+                if group not in self.dispatcher.groups:
+                    raise ValueError(f"Group {group} does not exist. Handler was not removed.")
+                self.dispatcher.groups[group].remove(handler)
+        self.dispatcher.remove_handler = patched_dispatcher_remove_handler
+
 
     async def start(self):
         await super().start()
@@ -110,6 +146,10 @@ class PatchedClient(PyroClient):
         timeout: float = session.Session.WAIT_TIMEOUT,
         sleep_threshold: float = None,  # type: ignore
     ):
+        # Boost default low timeouts to 60 seconds to prevent TimeoutError during large file uploads on slower networks
+        if timeout <= 15.0:
+            timeout = 60.0
+            
         while True:
             try:
                 res = await super().invoke(
@@ -121,17 +161,23 @@ class PatchedClient(PyroClient):
                 return res
             except (errors.FloodWait) as e:
                 await asyncio.sleep(e.value + 2)  # type: ignore
+
                     
 async def resolve_listener(
     client: PatchedClient,
     update: Union[types.CallbackQuery, types.Message, types.InlineQuery, types.ChosenInlineResult],
 ):
+    if isinstance(update, types.Message):
+        print(f"[PATCH] resolve_listener Message from {update.from_user.id if update.from_user else 'None'}: {update.text}", flush=True)
+    else:
+        print(f"[PATCH] resolve_listener called with update: {type(update)}", flush=True)
     if isinstance(update, types.CallbackQuery):
         if update.message:
             key = f"{update.message.chat.id}:{update.message.id}"
         elif update.inline_message_id:
             key = update.inline_message_id
         else:
+            update.continue_propagation()
             return
     elif isinstance(update, (types.ChosenInlineResult, types.InlineQuery)):
         key = str(update.from_user.id)
@@ -149,6 +195,9 @@ async def resolve_listener(
     else:
         if listener and listener["future"].done():  # type: ignore
             client.remove_listener(key, listener["future"])
+        update.continue_propagation()
+
+
 
 
 class Client(PatchedClient):

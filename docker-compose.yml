@@ -50,11 +50,12 @@ services:
       # Redis (Optional - Currently unused)
       # REDIS_URL: redis://redis:6379
 
-      # Telegram (from .env file)
       TELEGRAM_API_ID: ${TELEGRAM_API_ID}
       TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_STORAGE_CHANNEL_ID: ${TELEGRAM_STORAGE_CHANNEL_ID}
+      TELEGRAM_CLIENT_CONCURRENCY: ${TELEGRAM_CLIENT_CONCURRENCY:-3}
+
 
       # Security
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
@@ -66,7 +67,7 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       # Persist Telegram session
-      - telegram_session:/app
+      - telegram_session:/app/session
     networks:
       - telegram-tv-network
 
