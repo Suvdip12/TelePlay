@@ -4,7 +4,6 @@ Configuration settings loaded from environment variables.
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
-import os
 
 
 class Settings(BaseSettings):
@@ -42,13 +41,17 @@ class Settings(BaseSettings):
     
     telegram_storage_channel_id: int
     
-    # Database
-    database_url: str = "sqlite:////app/session/teleplay.db" if os.path.exists("/app/session") else "sqlite:///./data/teleplay.db"
+    # Database — Neon PostgreSQL (no more SQLite)
+    database_url: str = Field("postgresql://localhost/teleplay", alias="DATABASE_URL")
     
+    # Neon Auth — JWKS-based JWT verification
+    neon_auth_url: str = Field("", alias="NEON_AUTH_URL")
     
-    # JWT
-    jwt_secret: str = "your-super-secret-key-change-in-production"
-    jwt_expiry_minutes: int = 10080  # 7 days for persistent sessions
+    @property
+    def neon_auth_jwks_url(self) -> str:
+        """JWKS endpoint for verifying Neon Auth JWTs."""
+        base = self.neon_auth_url.rstrip("/")
+        return f"{base}/.well-known/jwks.json"
     
     # Server
     server_host: str = "0.0.0.0"

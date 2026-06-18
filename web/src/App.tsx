@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { useCurrentUser, useLoginWithCode, useBotInfo, useGenerateLoginCode, useVerifyLoginCode } from './lib/api';
+import { useCurrentUser, useBotInfo, useNeonAuthUrl } from './lib/api';
+import { getAuthClient } from './lib/auth';
 import FileBrowser from './components/FileBrowser';
 import GlobalContextMenu from './components/GlobalContextMenu';
 import logo from './assets/logo.png';
@@ -8,7 +9,7 @@ import logo from './assets/logo.png';
 function AuthCallback() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const token = searchParams.get('token');
+    const token = searchParams.get('token') || searchParams.get('access_token');
     const [status, setStatus] = useState('Processing...');
     const [saved, setSaved] = useState(false);
 
@@ -79,72 +80,78 @@ function AuthCallback() {
     );
 }
 
-// Add Key icon to imports if not already imported (it's not, need to check imports)
-// Wait, I can't easily add imports here without multiple replace.
-// I'll stick to simple UI for now or check imports first.
-// App.tsx imports: Routes, Route, Navigate, useSearchParams, useNavigate (react-router-dom); useEffect, useState (react); useCurrentUser (./lib/api); FileBrowser
-// It does NOT import lucide-react icons. I'll use text or existing SVG.
-
 function LoginPage() {
-    const { mutate: loginByCode, isPending: isVerifying } = useLoginWithCode();
-    const { mutate: generateCode, isPending: isGenerating } = useGenerateLoginCode();
-    const { mutate: verifyCode } = useVerifyLoginCode();
+    const { data: neonAuthUrl, isLoading: isLoadingUrl } = useNeonAuthUrl();
+    const [isSignUp, setIsSignUp] = useState(false);
     
-    const [code, setCode] = useState('');
-    const [isPolling, setIsPolling] = useState(false);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [name, setName] = useState('');
+    
+    const [isPending, setIsPending] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Initial code generation
-    useEffect(() => {
-        generateCode(undefined, {
-            onSuccess: (data) => {
-                setCode(data.code);
-                setIsPolling(true);
-            },
-            onError: (err: any) => {
-                setError(err.response?.data?.detail || "Failed to generate code");
-            }
-        });
-    }, [generateCode]);
-
-    // Polling logic
-    useEffect(() => {
-        let timer: any;
-        if (isPolling && code) {
-            timer = setInterval(() => {
-                verifyCode(code, {
-                    onSuccess: (data) => {
-                        localStorage.setItem('access_token', data.access_token);
-                        localStorage.setItem('refresh_token', data.refresh_token);
-                        setIsPolling(false);
-                        window.location.href = '/';
-                    },
-                    onError: () => {
-                        // Silent failure for polling
-                    }
-                });
-            }, 3000);
-        }
-        return () => {
-            if (timer) clearInterval(timer);
-        };
-    }, [isPolling, code, verifyCode]);
-
-    const handleManualLogin = (e: React.FormEvent) => {
+    const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!code) return;
+        if (!email || !password || !neonAuthUrl) return;
 
-        loginByCode(code, {
-            onSuccess: (data) => {
-                localStorage.setItem('access_token', data.access_token);
-                localStorage.setItem('refresh_token', data.refresh_token);
-                window.location.href = '/';
-            },
-            onError: (err: any) => {
-                setError(err.response?.data?.detail || "Invalid code");
+        setIsPending(true);
+        setError(null);
+
+        try {
+            const auth = getAuthClient(neonAuthUrl);
+            
+            if (isSignUp) {
+                // Sign Up
+                const { error: signUpError } = await auth.signUp.email({
+                    email,
+                    password,
+                    name: name || undefined,
+                });
+                if (signUpError) {
+                    throw new Error(signUpError.message || 'Failed to sign up');
+                }
+            } else {
+                // Sign In
+                const { error: signInError } = await auth.signIn.email({
+                    email,
+                    password,
+                });
+                if (signInError) {
+                    throw new Error(signInError.message || 'Failed to sign in');
+                }
             }
-        });
+
+            // Retrieve the raw JWT token for the backend
+            const tokenRes = await auth.token();
+            if (tokenRes.error) {
+                throw new Error(tokenRes.error.message || 'Failed to retrieve auth token');
+            }
+
+            if (tokenRes.data?.token) {
+                localStorage.setItem('access_token', tokenRes.data.token);
+                window.location.href = '/';
+            } else {
+                throw new Error('No auth token received');
+            }
+        } catch (err: any) {
+            console.error('Authentication error:', err);
+            setError(err.message || 'Authentication failed. Please try again.');
+        } finally {
+            setIsPending(false);
+        }
     };
+
+    if (isLoadingUrl) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-dark-950">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
+                    <p className="text-dark-400">Loading authentication settings...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
@@ -162,64 +169,87 @@ function LoginPage() {
                 <h1 className="text-3xl font-bold mb-2 text-gradient">
                     TelePlay
                 </h1>
-                <p className="text-dark-400 mb-8">
+                <p className="text-dark-400 mb-6">
                     Stream your files from Telegram
                 </p>
 
                 <div className="space-y-6">
-                    {/* Login Code Section */}
-                    <div className="glass-card p-6">
-                        <h3 className="text-white font-medium mb-4 flex items-center justify-center gap-2">
-                            <svg className="w-5 h-5 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                            </svg>
-                            Login with Code
-                        </h3>
-                        <form onSubmit={handleManualLogin} className="flex flex-col gap-3">
-                            <div className="relative">
+                    {/* Toggle between Sign In and Sign Up */}
+                    <div className="flex bg-dark-900/60 p-1 rounded-xl border border-white/[0.08] relative">
+                        <button
+                            type="button"
+                            onClick={() => { setIsSignUp(false); setError(null); }}
+                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${!isSignUp ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25' : 'text-dark-400 hover:text-white'}`}
+                        >
+                            Sign In
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setIsSignUp(true); setError(null); }}
+                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${isSignUp ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25' : 'text-dark-400 hover:text-white'}`}
+                        >
+                            Sign Up
+                        </button>
+                    </div>
+
+                    <div className="glass-card p-6 text-left">
+                        <form onSubmit={handleAuth} className="flex flex-col gap-4">
+                            {isSignUp && (
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-semibold text-dark-300 uppercase tracking-wider">Name</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Your name"
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                        className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-dark-300 uppercase tracking-wider">Email</label>
                                 <input
-                                    type="text"
-                                    placeholder="ENTER 6-DIGIT CODE"
-                                    value={code}
-                                    onChange={(e) => setCode(e.target.value.toUpperCase())}
-                                    maxLength={6}
-                                    className="w-full bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-4 text-center text-xl tracking-[0.1em] sm:text-2xl sm:tracking-[0.3em] font-mono text-white placeholder:text-sm placeholder:tracking-normal placeholder:font-sans placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all duration-200 uppercase"
+                                    type="email"
+                                    placeholder="your@email.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required
+                                    className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
                                 />
-                                {isGenerating && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-dark-900/40 rounded-xl">
-                                        <div className="w-5 h-5 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin"></div>
-                                    </div>
-                                )}
                             </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-dark-300 uppercase tracking-wider">Password</label>
+                                <input
+                                    type="password"
+                                    placeholder="••••••••"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    required
+                                    className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                                />
+                            </div>
+
                             <button
                                 type="submit"
-                                disabled={code.length < 6 || isVerifying}
-                                className="btn-primary w-full py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={isPending}
+                                className="btn-primary w-full py-3 mt-2 text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {isVerifying ? (
+                                {isPending ? (
                                     <span className="flex items-center justify-center gap-2">
                                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                        Verifying...
+                                        Processing...
                                     </span>
-                                ) : 'Login'}
+                                ) : isSignUp ? 'Create Account' : 'Sign In'}
                             </button>
+
                             {error && (
-                                <p className="text-red-400 text-sm mt-1">
+                                <p className="text-red-400 text-sm mt-1 text-center">
                                     {error}
                                 </p>
                             )}
                         </form>
-                        
-                        {isPolling && (
-                            <div className="flex items-center justify-center gap-2 mt-4 text-xs text-dark-400">
-                                <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
-                                Waiting for confirmation...
-                            </div>
-                        )}
-                        
-                        <p className="text-xs text-dark-500 mt-4">
-                            Send <span className="text-primary-400 font-mono bg-dark-800/50 px-1.5 py-0.5 rounded">/login {code || 'CODE'}</span> to the bot to get a code.
-                        </p>
                     </div>
 
                     <div className="relative">
@@ -231,17 +261,17 @@ function LoginPage() {
                         </div>
                     </div>
 
-                    <BotLink code={code} />
+                    <BotLink />
                 </div>
             </div>
         </div>
     );
 }
 
-function BotLink({ code }: { code?: string }) {
+function BotLink() {
     const { data: botInfo } = useBotInfo();
     const botUrl = botInfo?.username 
-        ? `https://t.me/${botInfo.username}${code ? `?start=${code}` : ''}` 
+        ? `https://t.me/${botInfo.username}` 
         : '#';
 
     return (

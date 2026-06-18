@@ -1,6 +1,6 @@
 """
 Database setup with SQLAlchemy async support.
-Supports both SQLite (for development) and PostgreSQL (for production).
+Uses Neon PostgreSQL exclusively.
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
@@ -9,18 +9,29 @@ from .config import get_settings
 
 settings = get_settings()
 
-# Convert database URL for async drivers and handle query params
+# Convert database URL for async driver (asyncpg)
 url = make_url(settings.database_url)
 
-if url.drivername == "postgresql":
+# Force PostgreSQL async driver
+if url.drivername in ("postgresql", "postgres"):
     url = url.set(drivername="postgresql+asyncpg")
-    # Remove 'schema' from query params if present (asyncpg doesn't support it in connect args)
-    if "schema" in url.query:
-        query = dict(url.query)
-        del query["schema"]
-        url = url.set(query=query)
-elif url.drivername == "sqlite":
-    url = url.set(drivername="sqlite+aiosqlite")
+elif url.drivername == "postgresql+asyncpg":
+    pass  # Already correct
+else:
+    # Fallback: assume PostgreSQL
+    url = url.set(drivername="postgresql+asyncpg")
+
+import ssl
+
+# Remove query params that asyncpg doesn't support
+query = dict(url.query)
+for unsupported_key in ("schema", "channel_binding", "sslmode"):
+    query.pop(unsupported_key, None)
+url = url.set(query=query)
+
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 engine = create_async_engine(
     url, 
@@ -28,7 +39,8 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_recycle=1800,  # Recycle connections every 30 minutes
     pool_size=40,       # Increased pool size for high concurrency
-    max_overflow=20     # Allow more overflow connections
+    max_overflow=20,    # Allow more overflow connections
+    connect_args={"ssl": ssl_context}
 )
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

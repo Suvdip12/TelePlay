@@ -9,15 +9,16 @@ from .database import Base
 
 
 class User(Base):
-    """Telegram user who uses the bot."""
+    """User who uses TelePlay (via Telegram bot or Neon Auth web login)."""
     __tablename__ = "users"
     
     id: Mapped[int] = mapped_column(primary_key=True)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
+    telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger, unique=True, nullable=True, index=True)
+    neon_auth_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True, index=True)
     username: Mapped[Optional[str]] = mapped_column(String(255))
     first_name: Mapped[Optional[str]] = mapped_column(String(255))
     last_name: Mapped[Optional[str]] = mapped_column(String(255))
-    auth_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_active: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -114,14 +115,3 @@ class WatchProgress(Base):
     __table_args__ = (
         Index("idx_watch_user_file", user_id, file_id, unique=True),
     )
-
-
-class LoginCode(Base):
-    """Temporary login code for TV/Web auth."""
-    __tablename__ = "login_codes"
-    
-    id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(6), unique=True, index=True, nullable=False)
-    telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

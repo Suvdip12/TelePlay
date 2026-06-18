@@ -37,14 +37,18 @@ limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger(__name__)
 
 
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - start/stop Telegram client and init DB."""
     logger.info("Starting TelePlay Backend...")
     await init_db()
     logger.info("Database initialized")
-    await start_telegram_client()
-    logger.info("Telegram client started")
+    
+    # Start Telegram client in background so it doesn't block server startup
+    asyncio.create_task(start_telegram_client())
+    logger.info("Telegram client startup task scheduled in background")
     
     yield
     
@@ -73,6 +77,13 @@ allowed_origins = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
 ]
+
+# Add Neon Auth domain to allowed origins if configured
+if settings.neon_auth_url:
+    from urllib.parse import urlparse
+    neon_auth_parsed = urlparse(settings.neon_auth_url)
+    neon_auth_origin = f"{neon_auth_parsed.scheme}://{neon_auth_parsed.netloc}"
+    allowed_origins.append(neon_auth_origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -147,6 +158,7 @@ async def health_debug():
         "main_client_connected": tg_client.is_connected if hasattr(tg_client, 'is_connected') else "unknown",
         "web_base_url": settings.web_base_url,
         "database_url": mask(settings.database_url, 10),
+        "neon_auth_url": mask(settings.neon_auth_url, 20) if settings.neon_auth_url else "(not set)",
         "server_port": settings.server_port,
     }
 

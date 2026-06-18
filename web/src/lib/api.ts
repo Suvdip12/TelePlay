@@ -1,5 +1,6 @@
 /**
  * API client and hooks for TelePlay backend.
+ * Auth is now handled by Neon Auth (JWKS-based JWT).
  */
 import axios from 'axios';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,10 +8,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 // Types
 export interface User {
     id: number;
-    telegram_id: number;
+    telegram_id: number | null;
+    neon_auth_id: string | null;
     username: string | null;
     first_name: string | null;
     last_name: string | null;
+    email: string | null;
     created_at: string;
     last_active: string;
 }
@@ -61,35 +64,9 @@ export interface BotInfo {
     server_version: string;
 }
 
-export interface LoginCodeResponse {
-    code: string;
-    expires_at: string;
-}
-
 export interface StorageStats {
     total_size: number;
     limit: number;
-}
-
-export interface StorageStats {
-    total_size: number;
-    limit: number;
-}
-
-export interface StorageStats {
-    total_size: number;
-    limit: number;
-}
-
-export interface StorageStats {
-    total_size: number;
-    limit: number;
-}
-
-export interface AuthResponse {
-    access_token: string;
-    refresh_token: string;
-    user: User;
 }
 
 // API client
@@ -97,7 +74,7 @@ export const api = axios.create({
     baseURL: '/api',
 });
 
-// Add auth token to requests
+// Add auth token to requests (Neon Auth JWT from localStorage)
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('access_token');
     if (token) {
@@ -106,87 +83,16 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
-// Queue for failed requests during token refresh
-let isRefreshing = false;
-let failedQueue: Array<{
-    resolve: (token: string) => void;
-    reject: (error: any) => void;
-}> = [];
-
-const processQueue = (error: any, token: string | null = null) => {
-    failedQueue.forEach((prom) => {
-        if (error) {
-            prom.reject(error);
-        } else {
-            prom.resolve(token!);
-        }
-    });
-
-    failedQueue = [];
-};
-
 // Handle 401 and 429 errors
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
-        const originalRequest = error.config;
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-            if (originalRequest.url.includes('/auth/refresh')) {
-                // Refresh token itself failed/expired - clear everything
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
-                localStorage.removeItem('user');
-                window.location.href = '/login';
-                return Promise.reject(error);
-            }
-
-            if (isRefreshing) {
-                return new Promise(function (resolve, reject) {
-                    failedQueue.push({ resolve, reject });
-                })
-                    .then((token) => {
-                        originalRequest.headers['Authorization'] = 'Bearer ' + token;
-                        return api(originalRequest);
-                    })
-                    .catch((err) => {
-                        return Promise.reject(err);
-                    });
-            }
-
-            originalRequest._retry = true;
-            isRefreshing = true;
-
-            try {
-                const refreshToken = localStorage.getItem('refresh_token');
-                if (!refreshToken) {
-                    throw new Error('No refresh token available');
-                }
-
-                const { data } = await axios.post('/api/auth/refresh', {
-                    refresh_token: refreshToken,
-                });
-
-                const { access_token, refresh_token } = data;
-
-                localStorage.setItem('access_token', access_token);
-                localStorage.setItem('refresh_token', refresh_token);
-
-                api.defaults.headers.common['Authorization'] = 'Bearer ' + access_token;
-                originalRequest.headers['Authorization'] = 'Bearer ' + access_token;
-
-                processQueue(null, access_token);
-                return api(originalRequest);
-            } catch (err) {
-                processQueue(err, null);
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
-                localStorage.removeItem('user');
-                window.location.href = '/login';
-                return Promise.reject(err);
-            } finally {
-                isRefreshing = false;
-            }
+        if (error.response?.status === 401) {
+            // Token expired or invalid — redirect to login
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+            return Promise.reject(error);
         } else if (error.response?.status === 429) {
             console.log('[API] 429 Too Many Requests - rate limited');
             error.message = 'Too many requests. Please wait a moment and try again.';
@@ -209,23 +115,6 @@ export const useCurrentUser = () => {
     });
 };
 
-export const useLoginWithCode = () => {
-    return useMutation({
-        mutationFn: async (code: string) => {
-            const { data } = await api.post<{ access_token: string; refresh_token: string }>('/auth/code', { code });
-            return data;
-        },
-    });
-};
-
-export const useLogoutAll = () => {
-    return useMutation({
-        mutationFn: async () => {
-            await api.post('/auth/logout-all');
-        },
-    });
-};
-
 export const useBotInfo = () => {
     return useQuery({
         queryKey: ['botInfo'],
@@ -237,21 +126,14 @@ export const useBotInfo = () => {
     });
 };
 
-export const useGenerateLoginCode = () => {
-    return useMutation({
-        mutationFn: async () => {
-            const { data } = await api.post<LoginCodeResponse>('/auth/generate-code');
-            return data;
+export const useNeonAuthUrl = () => {
+    return useQuery({
+        queryKey: ['neonAuthUrl'],
+        queryFn: async () => {
+            const { data } = await api.get<{ auth_url: string }>('/auth/neon-auth-url');
+            return data.auth_url;
         },
-    });
-};
-
-export const useVerifyLoginCode = () => {
-    return useMutation({
-        mutationFn: async (code: string) => {
-            const { data } = await api.post<AuthResponse>('/auth/verify-code', { code });
-            return data;
-        },
+        staleTime: Infinity,
     });
 };
 

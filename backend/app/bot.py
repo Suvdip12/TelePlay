@@ -13,9 +13,8 @@ from sqlalchemy import select, func
 
 from .telegram import tg_client, forward_to_storage_channel
 from .database import async_session
-from .models import User, File, Folder, LoginCode
+from .models import User, File, Folder
 from .config import get_settings
-from .auth import create_access_token
 
 settings = get_settings()
 
@@ -91,12 +90,9 @@ async def get_or_create_user(telegram_id: int, username: str = None,
         return user
 
 
-def get_web_app_button(telegram_id: int, text: str = "🌐 Open Web") -> InlineKeyboardButton:
-    """Create a URL button with authenticated link."""
-    from urllib.parse import quote
-    token = create_access_token(telegram_id)
-    encoded_token = quote(token, safe='')
-    web_url = f"{settings.web_base_url}/auth?token={encoded_token}"
+def get_web_app_button(text: str = "🌐 Open Web") -> InlineKeyboardButton:
+    """Create a URL button to the web interface."""
+    web_url = settings.web_base_url
     return InlineKeyboardButton(text, web_app=WebAppInfo(url=web_url))
 
 # ============== Authorization Middleware ==============
@@ -126,39 +122,13 @@ async def check_auth(client, message: Message):
 
 @tg_client.on_message(filters.command("start") & filters.private)
 async def start_command(client, message: Message):
-    """Welcome message and bot instructions. Also handles deep-linked login codes."""
+    """Welcome message and bot instructions."""
     await get_or_create_user(
         message.from_user.id,
         message.from_user.username,
         message.from_user.first_name,
         message.from_user.last_name,
     )
-    
-    # Check for deep-linked login codes (e.g. /start ABCDEF)
-    if len(message.command) > 1:
-        code_input = message.command[1].strip().upper()
-        async with async_session() as db:
-            result = await db.execute(select(LoginCode).where(LoginCode.code == code_input))
-            login_code = result.scalar_one_or_none()
-            
-            if login_code:
-                if login_code.expires_at > datetime.utcnow() and not login_code.telegram_id:
-                    # Claim the code
-                    login_code.telegram_id = message.from_user.id
-                    await db.commit()
-                    
-                    await message.reply(
-                        "✅ **Success!**\n"
-                        "You have successfully logged in on your device.\n"
-                        "You can now enjoy watching! 🍿"
-                    )
-                    return
-                elif login_code.telegram_id:
-                     await message.reply("⚠️ This code has already been used.")
-                     return
-                else:
-                     await message.reply("❌ This code has expired.")
-                     return
 
     await message.reply(
         "📺 **Welcome to TelePlay!**\n\n"
@@ -169,8 +139,7 @@ async def start_command(client, message: Message):
         "🚀 **QUICK START**\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "1️⃣ Send any media file to upload\n"
-        "2️⃣ Use /web to open web player\n"
-        "3️⃣ Use /login on your TV app\n\n"
+        "2️⃣ Use /web to open web player\n\n"
         
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📝 **COMMANDS**\n"
@@ -182,9 +151,9 @@ async def start_command(client, message: Message):
         "/help - Full help guide\n\n"
         
         "💡 After uploading, you'll get the **File ID**\n"
-        "Use `/file <id>` to rename, move, or delete.",
+        "Use `/file <id>` to manage this file.",
         reply_markup=InlineKeyboardMarkup([
-            [get_web_app_button(message.from_user.id, "🌐 Open Web Interface")],
+            [get_web_app_button("🌐 Open Web Interface")],
             [
                 InlineKeyboardButton("📁 My Files", callback_data="show_files"),
                 InlineKeyboardButton("📂 My Folders", callback_data="back_folders")
@@ -212,9 +181,7 @@ async def help_command(client, message: Message):
         "**General:**\n"
         "• /start - Welcome message\n"
         "• /help - This help message\n"
-        "• /web - Get authenticated web link\n"
-        "• /login - Get/verify login code for TV\n"
-        "• /logout_all - Invalidate all active sessions\n\n"
+        "• /web - Open web interface\n\n"
         
         "**File Management:**\n"
         "• /myfiles - List your recent files with IDs\n"
@@ -246,10 +213,10 @@ async def help_command(client, message: Message):
         "• ⚠️ Max size: 2GB per file\n\n"
         
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "📺 **TV & WEB STREAMING**\n"
+        "📺 **WEB STREAMING**\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "• Use /web to get a secure link\n"
-        "• Use /login on TV app to connect\n"
+        "• Use /web to open the web player\n"
+        "• Log in with your email on the web\n"
         "• Watch progress syncs across devices\n"
     )
 
@@ -290,7 +257,7 @@ async def myfiles_command(client, message: Message):
         text,
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📁 My Folders", callback_data="back_folders")],
-            [get_web_app_button(message.from_user.id, "🌐 Open Web")]
+            [get_web_app_button("🌐 Open Web")]
         ])
     )
 
@@ -382,120 +349,28 @@ async def newfolder_command(client, message: Message):
 
 @tg_client.on_message(filters.command("web") & filters.private)
 async def web_command(client, message: Message):
-    """Get authenticated web interface link."""
-    user = await get_or_create_user(
+    """Get web interface link."""
+    await get_or_create_user(
         message.from_user.id,
         message.from_user.username,
         message.from_user.first_name,
         message.from_user.last_name,
     )
     
-    token = create_access_token(message.from_user.id)
-    web_url = f"{settings.web_base_url}/auth?token={token}"
+    web_url = settings.web_base_url
     
     await message.reply(
         "🌐 **Web Interface**\n\n"
-        "Click the link below to access your files:\n"
+        "Open the web player and log in with your email:\n"
         f"👉 {web_url}\n\n"
-        "__(Link expires in 15 minutes)__"
-    )
-
-
-@tg_client.on_message(filters.command("login") & filters.private)
-async def login_command(client, message: Message):
-    """
-    Handle login command.
-    Usage:
-    /login <CODE> - Link TV/Web session
-    /login - Generate code to enter on device
-    """
-    await get_or_create_user(
-        message.from_user.id,
-        message.from_user.username,
-        message.from_user.first_name,
-        message.from_user.last_name,
-    )
-
-    # Check if code is provided (TV/Web -> User flow)
-    if len(message.command) > 1:
-        code_input = message.command[1].strip().upper()
-        
-        async with async_session() as db:
-            result = await db.execute(select(LoginCode).where(LoginCode.code == code_input))
-            login_code = result.scalar_one_or_none()
-            
-            if not login_code:
-                await message.reply("❌ **Invalid code.**\nPlease check the code displayed on your TV.")
-                return
-            
-            if login_code.expires_at < datetime.utcnow():
-                await message.reply("❌ **Code expired.**\nPlease generate a new one on your TV.")
-                return
-                
-            if login_code.telegram_id:
-                await message.reply("❌ **Code already used.**")
-                return
-
-            # Claim the code
-            login_code.telegram_id = message.from_user.id
-            await db.commit()
-            
-            await message.reply(
-                "✅ **Success!**\n"
-                "You have successfully logged in on your TV.\n"
-                "You can now put your phone away and enjoy watching! 🍿"
-            )
-        return
-
-    # Use secrets for cryptographically strong random number generation
-    alphabet = string.ascii_uppercase + string.digits
-    code = ''.join(secrets.choice(alphabet) for _ in range(6))
-    
-    async with async_session() as db:
-        # Save code
-        login_code = LoginCode(
-            code=code,
-            telegram_id=message.from_user.id,
-            expires_at=datetime.utcnow() + timedelta(minutes=5)
-        )
-        db.add(login_code)
-        await db.commit()
-    
-    await message.reply(
-        "🔑 **Your Login Code:**\n\n"
-        f"`{code}`\n\n"
-        "Enter this code on the login screen.\n"
-        "__(Expires in 5 minutes)__"
-    )
-
-    return
-
-@tg_client.on_message(filters.command("logout_all") & filters.private)
-async def logout_all_command(client, message: Message):
-    """
-    Invalidate all active sessions for the current user.
-    """
-    await get_or_create_user(
-        message.from_user.id,
-        message.from_user.username,
-        message.from_user.first_name,
-        message.from_user.last_name,
-    )
-    
-    await message.reply(
-        "⚠️ **Confirm Global Logout**\n\n"
-        "Are you sure you want to log out from **ALL** devices?\n"
-        "This will invalidate your session on:\n"
-        "• Web App\n"
-        "• Android TV\n"
-        "• Mobile App",
+        "💡 Your files uploaded here will be available on the web.",
         reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Yes, Logout", callback_data="logout_all_confirm"),
-                InlineKeyboardButton("❌ Cancel", callback_data="logout_all_cancel")
-            ]
+            [get_web_app_button("🚀 Open Web Player")]
         ])
     )
+
+
+# /login and /logout_all commands removed — auth is now handled by Neon Auth on the web
 
 # ============== File Handler ==============
 
@@ -599,39 +474,15 @@ async def handle_callback(client, callback: CallbackQuery):
     """Handle inline button callbacks."""
     data = callback.data
     
-    if data == "logout_all_confirm":
-        # Perform global logout
-        async with async_session() as db:
-            result = await db.execute(select(User).where(User.telegram_id == callback.from_user.id))
-            user = result.scalar_one_or_none()
-            
-            if user:
-                user.auth_version += 1
-                await db.commit()
-                await callback.message.edit(
-                    "✅ **All sessions invalidated!**\n"
-                    "You have been successfully logged out from all web, TV, and mobile devices."
-                )
-            else:
-                await callback.answer("User not found", show_alert=True)
-        await callback.answer()
-        
-    elif data == "logout_all_cancel":
-        # Cancel logout
-        await callback.message.edit("❌ **Global logout cancelled.**")
-        await callback.answer()
-
-    elif data == "get_web_link":
-        # Fallback for old messages - show link and also provide Mini App button
-        token = create_access_token(callback.from_user.id)
-        web_url = f"{settings.web_base_url}/auth?token={token}"
+    if data == "get_web_link":
+        # Show web link
+        web_url = settings.web_base_url
         await callback.message.reply(
             f"🌐 **Web Interface**\n\n"
             f"👉 {web_url}\n\n"
-            "__(Link expires in 15 minutes)__\n\n"
-            "💡 Tap the button below to open directly:",
+            "💡 Log in with your email on the web.",
             reply_markup=InlineKeyboardMarkup([
-                [get_web_app_button(callback.from_user.id, "🚀 Open Mini App")]
+                [get_web_app_button("🚀 Open Web Player")]
             ])
         )
         await callback.answer()
@@ -669,7 +520,7 @@ async def handle_callback(client, callback: CallbackQuery):
             text,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📂 My Folders", callback_data="back_folders")],
-                [get_web_app_button(callback.from_user.id, "🌐 Open Web")]
+                [get_web_app_button("🌐 Open Web")]
             ])
         )
         await callback.answer()

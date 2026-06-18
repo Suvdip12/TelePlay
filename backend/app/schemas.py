@@ -9,10 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 # ============== User Schemas ==============
 
 class UserBase(BaseModel):
-    telegram_id: int
+    telegram_id: Optional[int] = None
+    neon_auth_id: Optional[str] = None
     username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    email: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -128,47 +130,12 @@ class WatchProgressResponse(WatchProgressBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ============== Auth Schemas ==============
-
-class Token(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class RefreshTokenRequest(BaseModel):
-    """Request body for token refresh."""
-    refresh_token: str = Field(..., alias="refreshToken")
-    
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class TokenPayload(BaseModel):
-    sub: int  # user telegram_id
-    exp: datetime
-
-
-class LoginCodeRequest(BaseModel):
-    code: str
-
-
-class LoginCodeResponse(BaseModel):
-    code: str
-    expires_at: datetime
-
-
-class VerifyCodeRequest(BaseModel):
-    code: str
-
-
-class AuthResponse(Token):
-    user: UserResponse
-
+# ============== Auth Schemas (simplified for Neon Auth) ==============
 
 class BotInfoResponse(BaseModel):
     username: str
     name: Optional[str] = None
-    server_version: str = "1.0.0"
+    server_version: str = "2.0.0"
 
 
 class UploadLinkRequest(BaseModel):
