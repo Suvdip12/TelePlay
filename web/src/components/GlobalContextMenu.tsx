@@ -55,10 +55,10 @@ export default function GlobalContextMenu() {
         return () => document.removeEventListener('keydown', handleEscape);
     }, [activeContextMenu, setActiveContextMenu]);
 
-    if (!activeContextMenu) return null;
-
-    const { x, y } = activeContextMenu;
-    const isMultiSelect = selectedFileIds.size > 1 && activeContextMenu.type === 'file' && selectedFileIds.has(activeContextMenu.item.id);
+    const { x, y } = activeContextMenu || { x: 0, y: 0 };
+    const isMultiSelect = activeContextMenu
+        ? selectedFileIds.size > 1 && activeContextMenu.type === 'file' && selectedFileIds.has(activeContextMenu.item.id)
+        : false;
 
     // Adjust position to keep within viewport
     const getMenuPosition = () => {
@@ -166,18 +166,20 @@ export default function GlobalContextMenu() {
 
     return (
         <>
-            {/* Overlay to catch clicks outside */}
-            <div
-                className="fixed inset-0 z-[99998]"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveContextMenu(null);
-                }}
-            />
+            {activeContextMenu && (
+                <>
+                    {/* Overlay to catch clicks outside */}
+                    <div
+                        className="fixed inset-0 z-[99998]"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveContextMenu(null);
+                        }}
+                    />
 
-            {/* Context Menu */}
-            <div
-                ref={menuRef}
+                    {/* Context Menu */}
+                    <div
+                        ref={menuRef}
                 className="fixed bg-dark-800/95 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl py-1.5 min-w-[220px] z-[99999] animate-scale-in"
                 style={{
                     left: position.left,
@@ -304,6 +306,8 @@ export default function GlobalContextMenu() {
                     </>
                 )}
             </div>
+                </>
+            )}
             
             {/* Hidden file input for thumbnail upload */}
             <input
