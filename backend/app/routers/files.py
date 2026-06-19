@@ -579,6 +579,12 @@ async def upload_custom_thumbnail(
         raise
     except Exception as e:
         logger.error(f"Thumbnail upload failed: {e}", exc_info=True)
+        try:
+            import traceback
+            with open("error_log.txt", "w") as f:
+                traceback.print_exc(file=f)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Failed to upload thumbnail: {str(e)}")
     finally:
         # Clean up temp file

@@ -170,6 +170,12 @@ async def get_thumbnail(
     except Exception as e:
         # Log error internally, don't expose details to users
         logger.error(f"Thumbnail error for file {file_id}: {e}")
+        try:
+            import traceback
+            with open("error_log.txt", "w") as f:
+                traceback.print_exc(file=f)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail="Failed to get thumbnail")
 
 
