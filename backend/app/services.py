@@ -96,3 +96,48 @@ async def fetch_continue_watching_files(db: AsyncSession, user_id: int, limit: i
     )
     result = await db.execute(query)
     return result.scalars().unique().all()
+
+def extract_video_thumbnail(video_path: str) -> Optional[str]:
+    """
+    Extracts a frame from the video and saves it to a temp JPEG file.
+    Requires opencv-python-headless.
+    """
+    try:
+        import cv2
+        import os
+        import tempfile
+        import secrets
+    except ImportError:
+        return None
+        
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    
+    try:
+        # Read the duration or total frames
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25
+        
+        # Pick a frame at around 1 second, or 10% of the video
+        target_frame = int(min(frame_count * 0.1, fps * 1.0))
+        if target_frame >= frame_count:
+            target_frame = 0
+            
+        cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+        ret, frame = cap.read()
+    finally:
+        cap.release()
+        
+    if not ret:
+        return None
+        
+    # Save to a temporary jpeg file
+    tmp_dir = os.path.join(tempfile.gettempdir(), "teleplay_thumbnails")
+    os.makedirs(tmp_dir, exist_ok=True)
+    thumb_path = os.path.join(tmp_dir, f"thumb_{secrets.token_hex(4)}.jpg")
+    
+    # Save using cv2.imwrite
+    cv2.imwrite(thumb_path, frame)
+    return thumb_path
+

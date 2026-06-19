@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     telegram_storage_channel_id: int
     
     # Database — Neon PostgreSQL (no more SQLite)
-    database_url: str = Field("postgresql://localhost/teleplay", alias="DATABASE_URL")
+    database_url: str = Field("postgresql://localhost/yaaritube", alias="DATABASE_URL")
     
     # Neon Auth — JWKS-based JWT verification
     neon_auth_url: str = Field("", alias="NEON_AUTH_URL")

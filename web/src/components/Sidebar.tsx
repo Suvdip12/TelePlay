@@ -1,5 +1,5 @@
 import { Files, Clock, PlayCircle, LogOut, HardDrive, X } from 'lucide-react';
-import logo from '../assets/logo.png';
+import logo from '../assets/logo.svg';
 import { useAppStore } from '../lib/store';
 import { useStorageStats, formatFileSize, useNeonAuthUrl } from '../lib/api';
 import { getAuthClient } from '../lib/auth';
@@ -70,11 +70,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <div className="flex items-center gap-3">
                         <img 
                             src={logo} 
-                            alt="TelePlay Logo" 
+                            alt="YaariTube Logo" 
                             className="w-8 h-8 rounded-lg shadow-lg shadow-primary-500/20 object-contain" 
                         />
                         <span className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
-                            TelePlay
+                            YaariTube
                         </span>
                     </div>
                     {/* Close button for mobile */}

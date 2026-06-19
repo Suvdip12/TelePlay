@@ -131,7 +131,7 @@ async def start_command(client, message: Message):
     )
 
     await message.reply(
-        "📺 **Welcome to TelePlay!**\n\n"
+        "📺 **Welcome to YaariTube!**\n\n"
         "Your personal media streaming platform.\n"
         "Upload files here, stream anywhere!\n\n"
         
@@ -166,7 +166,7 @@ async def start_command(client, message: Message):
 async def help_command(client, message: Message):
     """Show help message."""
     await message.reply(
-        "📖 **TelePlay Help**\n\n"
+        "📖 **YaariTube Help**\n\n"
         
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📤 **UPLOADING FILES**\n"

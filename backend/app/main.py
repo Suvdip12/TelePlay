@@ -42,7 +42,7 @@ import asyncio
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - start/stop Telegram client and init DB."""
-    logger.info("Starting TelePlay Backend...")
+    logger.info("Starting YaariTube Backend...")
     await init_db()
     logger.info("Database initialized")
     
@@ -58,8 +58,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TelePlay API",
-    description="Stream files from Telegram to Android TV and Web",
+    title="YaariTube API",
+    description="Stream files from Telegram to Web and Mobile via YaariTube",
     version="1.0.0",
     lifespan=lifespan,
 )

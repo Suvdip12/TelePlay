@@ -26,3 +26,7 @@ aiofiles>=23.2.0
 
 # Rate Limiting
 slowapi>=0.1.9
+
+# Video Processing (for thumbnail extraction)
+opencv-python-headless>=4.9.0.80
+

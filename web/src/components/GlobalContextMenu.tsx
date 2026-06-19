@@ -1,12 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../lib/store';
-import { TelegramFile, Folder, api } from '../lib/api';
-import { Play, Download, Link, Edit, FolderInput, Trash2, Globe, ShieldOff, HardDriveDownload } from 'lucide-react';
+import { TelegramFile, Folder, api, useUploadThumbnail } from '../lib/api';
+import { Play, Download, Link, Edit, FolderInput, Trash2, Globe, ShieldOff, HardDriveDownload, Image as ImageIcon } from 'lucide-react';
 
 export default function GlobalContextMenu() {
-    const { activeContextMenu, setActiveContextMenu, setPreviewFile, setMoveItems, setMoveFiles, setDeleteConfirm, setRenameFile, setRenameFolder, selectedFileIds, selectedFiles } = useAppStore();
+    const { activeContextMenu, setActiveContextMenu, setPreviewFile, setMoveItems, setMoveFiles, setDeleteConfirm, setRenameFile, setRenameFolder, selectedFileIds, selectedFiles, addToast } = useAppStore();
     const menuRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [targetFileForThumb, setTargetFileForThumb] = useState<TelegramFile | null>(null);
+
+    const uploadThumbnailMutation = useUploadThumbnail();
+
+    const handleThumbnailUploadClick = (file: TelegramFile) => {
+        setTargetFileForThumb(file);
+        setTimeout(() => {
+            if (fileInputRef.current) {
+                fileInputRef.current.click();
+            }
+        }, 50);
+    };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file && targetFileForThumb) {
+            try {
+                addToast('Uploading custom thumbnail...', 'info');
+                await uploadThumbnailMutation.mutateAsync({
+                    fileId: targetFileForThumb.id,
+                    thumbnailFile: file,
+                });
+                addToast('Thumbnail updated successfully!', 'success');
+            } catch (error: any) {
+                addToast(error?.message || 'Failed to upload thumbnail', 'error');
+            }
+        }
+        if (e.target) {
+            e.target.value = '';
+        }
+        setTargetFileForThumb(null);
+    };
 
     // Close menu on escape
     useEffect(() => {
@@ -228,6 +261,10 @@ export default function GlobalContextMenu() {
 
                                 <hr className="border-white/[0.08] my-1" />
                                 
+                                <button className="context-menu-item w-full text-left" onClick={() => handleAction(() => handleThumbnailUploadClick(activeContextMenu.item as TelegramFile))}>
+                                    <ImageIcon className="w-4 h-4" />
+                                    Update Thumbnail
+                                </button>
                                 <button className="context-menu-item w-full text-left" onClick={() => handleAction(() => setRenameFile(activeContextMenu.item as TelegramFile))}>
                                     <Edit className="w-4 h-4" />
                                     Rename
@@ -267,6 +304,15 @@ export default function GlobalContextMenu() {
                     </>
                 )}
             </div>
+            
+            {/* Hidden file input for thumbnail upload */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                style={{ display: 'none' }}
+            />
         </>
     );
 }

@@ -25,7 +25,8 @@ from ..services import (
     sanitize_filename, 
     add_urls_to_file, 
     fetch_recent_files, 
-    fetch_continue_watching_files
+    fetch_continue_watching_files,
+    extract_video_thumbnail
 )
 
 router = APIRouter(prefix="/files", tags=["Files"])
@@ -103,12 +104,21 @@ async def upload_file(
         # Send to Telegram storage channel via the bot client
         logger.info(f"Uploading {safe_name} ({file_size} bytes) to Telegram for user {current_user.id}")
         
+        thumb_path = None
+        if file_type == "video":
+            try:
+                loop = asyncio.get_running_loop()
+                thumb_path = await loop.run_in_executor(None, extract_video_thumbnail, tmp_path)
+            except Exception as e:
+                logger.warning(f"Failed to auto-extract thumbnail: {e}")
+        
         sent_msg = None
         if file_type == "video":
             sent_msg = await tg_client.send_video(
                 settings.telegram_storage_channel_id,
                 tmp_path,
                 file_name=safe_name,
+                thumb=thumb_path,
             )
         elif file_type == "audio":
             sent_msg = await tg_client.send_audio(
@@ -166,9 +176,14 @@ async def upload_file(
         logger.error(f"Upload failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     finally:
-        # Clean up temp file
+        # Clean up temp files
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+        if thumb_path and os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)
+            except Exception:
+                pass
 
 
 def download_file_sync(url: str, tmp_path: str) -> tuple[int, str, str]:
@@ -258,12 +273,21 @@ async def upload_file_from_link(
         
         logger.info(f"Uploading {safe_name} ({file_size} bytes) from link to Telegram for user {current_user.id}")
         
+        thumb_path = None
+        if file_type == "video":
+            try:
+                loop = asyncio.get_running_loop()
+                thumb_path = await loop.run_in_executor(None, extract_video_thumbnail, tmp_path)
+            except Exception as e:
+                logger.warning(f"Failed to auto-extract thumbnail: {e}")
+        
         sent_msg = None
         if file_type == "video":
             sent_msg = await tg_client.send_video(
                 settings.telegram_storage_channel_id,
                 tmp_path,
                 file_name=safe_name,
+                thumb=thumb_path,
             )
         elif file_type == "audio":
             sent_msg = await tg_client.send_audio(
@@ -323,6 +347,11 @@ async def upload_file_from_link(
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+        if thumb_path and os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)
+            except Exception:
+                pass
 
 
 @router.get("", response_model=FileListResponse)
@@ -469,6 +498,92 @@ async def update_file(
     file = result.scalar_one()
     
     return FileResponse(**add_urls_to_file(file))
+
+
+@router.post("/{file_id}/thumbnail", response_model=FileResponse)
+async def upload_custom_thumbnail(
+    file_id: int,
+    file: UploadFile = FastAPIFile(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload a custom thumbnail for an existing file.
+    The thumbnail is saved temporarily, uploaded to the Telegram storage channel as a photo,
+    then the temp file is deleted and the file's thumbnail_file_id is updated.
+    """
+    # Fetch file from database
+    result = await db.execute(
+        select(File).where(File.id == file_id, File.user_id == current_user.id)
+    )
+    db_file = result.scalar_one_or_none()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No thumbnail file provided")
+        
+    # Check mime type is image
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+        
+    # Save the uploaded thumbnail to a temp file
+    tmp_dir = os.path.join(tempfile.gettempdir(), "teleplay_uploads")
+    os.makedirs(tmp_dir, exist_ok=True)
+    safe_suffix = sanitize_filename(file.filename)
+    tmp_path = os.path.join(tmp_dir, f"thumb_custom_{secrets.token_hex(8)}_{safe_suffix}")
+    
+    try:
+        # Stream file to disk
+        file_size = 0
+        with open(tmp_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1MB chunks
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > 10 * 1024 * 1024:  # Limit thumbnail to 10MB
+                    raise HTTPException(status_code=413, detail="Thumbnail too large. Maximum size is 10MB.")
+                f.write(chunk)
+                
+        if file_size == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+            
+        logger.info(f"Uploading custom thumbnail for file {file_id} ({file_size} bytes) to Telegram")
+        
+        # Upload photo to Telegram channel
+        sent_msg = await tg_client.send_photo(
+            settings.telegram_storage_channel_id,
+            tmp_path,
+        )
+        
+        if not sent_msg or not sent_msg.photo:
+            raise HTTPException(status_code=500, detail="Failed to upload thumbnail to Telegram")
+            
+        # Get photo file ID (highest resolution is the last item)
+        thumbnail_file_id = sent_msg.photo[-1].file_id
+        
+        # Update database
+        db_file.thumbnail_file_id = thumbnail_file_id
+        await db.commit()
+        
+        # Re-fetch with relationships for the response
+        result = await db.execute(
+            select(File).where(File.id == file_id).options(selectinload(File.watch_progress))
+        )
+        db_file = result.scalar_one()
+        
+        return FileResponse(**add_urls_to_file(db_file))
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Thumbnail upload failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload thumbnail: {str(e)}")
+    finally:
+        # Clean up temp file
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 @router.delete("/{file_id}")

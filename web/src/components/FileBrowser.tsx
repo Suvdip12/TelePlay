@@ -111,7 +111,7 @@ export default function FileBrowser() {
 
     const containerRef = useRef<HTMLDivElement>(null);
     const [isSelecting, setIsSelecting] = useState(false);
-    const [isSidebarOpen, setSidebarOpen] = useState(true);
+    const [isSidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 768);
     const selectionStart = useRef({ x: 0, y: 0 });
 
     // Upload state
@@ -570,7 +570,7 @@ export default function FileBrowser() {
                         </button>
 
                         {/* Search */}
-                        <div className="relative w-full max-w-[200px] sm:max-w-xs md:w-64">
+                        <div className="relative w-full max-w-[130px] sm:max-w-xs md:w-64">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-500" />
                             <input
                                 type="text"

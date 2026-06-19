@@ -286,6 +286,28 @@ export const useUpdateFile = () => {
     });
 };
 
+export const useUploadThumbnail = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ fileId, thumbnailFile }: { fileId: number; thumbnailFile: globalThis.File }) => {
+            const formData = new FormData();
+            formData.append('file', thumbnailFile);
+            const { data } = await api.post<TelegramFile>(`/files/${fileId}/thumbnail`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+            return data;
+        },
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['files'] });
+            queryClient.invalidateQueries({ queryKey: ['file', variables.fileId] });
+            queryClient.invalidateQueries({ queryKey: ['files', 'recent'] });
+            queryClient.invalidateQueries({ queryKey: ['files', 'continue-watching'] });
+        },
+    });
+};
+
 export const useDeleteFile = () => {
     const queryClient = useQueryClient();
     return useMutation({

@@ -129,7 +129,19 @@ async def get_thumbnail(
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     
     try:
-        # Get the message and download thumbnail
+        # First try downloading the file.thumbnail_file_id directly.
+        # This is extremely fast and natively handles custom user-uploaded thumbnails.
+        try:
+            thumb_bytes = await tg_client.download_media(file.thumbnail_file_id, in_memory=True)
+            if thumb_bytes:
+                return Response(
+                    content=thumb_bytes.getvalue(),
+                    media_type="image/jpeg"
+                )
+        except Exception as e:
+            logger.warning(f"Direct thumbnail download failed for file {file_id}: {e}")
+            
+        # Fallback: Get the message and download thumbnail
         message = await get_message_from_channel(file.channel_message_id)
         if not message:
             raise HTTPException(status_code=404, detail="Message not found")
@@ -146,13 +158,6 @@ async def get_thumbnail(
             thumbnail = message.photo[-1]  # Use best quality photo
             
         if not thumbnail:
-            # Try using the file_id directly if stored (fallback)
-            if file.thumbnail_file_id:
-                try:
-                    thumb_bytes = await tg_client.download_media(file.thumbnail_file_id, in_memory=True)
-                    return Response(content=thumb_bytes.getvalue(), media_type="image/jpeg")
-                except Exception:
-                    pass
             raise HTTPException(status_code=404, detail="Thumbnail not found in message")
         
         # Download thumbnail to memory

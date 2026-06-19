@@ -4,7 +4,7 @@ import { useCurrentUser, useBotInfo, useNeonAuthUrl } from './lib/api';
 import { getAuthClient } from './lib/auth';
 import FileBrowser from './components/FileBrowser';
 import GlobalContextMenu from './components/GlobalContextMenu';
-import logo from './assets/logo.png';
+import logo from './assets/logo.svg';
 
 function AuthCallback() {
     const [searchParams] = useSearchParams();
@@ -91,6 +91,16 @@ function LoginPage() {
     const [isPending, setIsPending] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const token = localStorage.getItem('access_token');
+    const navigate = useNavigate();
+
+    // Redirect to home if already logged in
+    useEffect(() => {
+        if (token) {
+            navigate('/', { replace: true });
+        }
+    }, [token, navigate]);
+
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!email || !password || !neonAuthUrl) return;
@@ -110,6 +120,15 @@ function LoginPage() {
                 });
                 if (signUpError) {
                     throw new Error(signUpError.message || 'Failed to sign up');
+                }
+
+                // Explicitly sign in after successful sign up to establish session
+                const { error: signInError } = await auth.signIn.email({
+                    email,
+                    password,
+                });
+                if (signInError) {
+                    throw new Error(signInError.message || 'Failed to sign in after sign up');
                 }
             } else {
                 // Sign In
@@ -162,12 +181,12 @@ function LoginPage() {
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary-700/5 rounded-full blur-3xl"></div>
             </div>
 
-            <div className="glass-panel p-8 max-w-md w-full text-center animate-scale-in relative z-10">
+            <div className="glass-panel p-8 max-w-md w-full text-center animate-scale-in relative z-10 shadow-[0_0_50px_rgba(14, 165, 233, 0.15)] border-white/[0.08] hover:border-white/[0.12] transition-all duration-500">
                 {/* Logo */}
-                <img src={logo} alt="TelePlay" className="w-24 h-24 mx-auto mb-6 drop-shadow-2xl" />
+                <img src={logo} alt="YaariTube" className="w-24 h-24 mx-auto mb-6 drop-shadow-2xl" />
 
                 <h1 className="text-3xl font-bold mb-2 text-gradient">
-                    TelePlay
+                    YaariTube
                 </h1>
                 <p className="text-dark-400 mb-6">
                     Stream your files from Telegram
@@ -202,7 +221,7 @@ function LoginPage() {
                                         placeholder="Your name"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                                        className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 focus:shadow-[0_0_20px_rgba(14, 165, 233, 0.25)] transition-all"
                                     />
                                 </div>
                             )}
@@ -215,7 +234,7 @@ function LoginPage() {
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     required
-                                    className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                                    className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 focus:shadow-[0_0_20px_rgba(14, 165, 233, 0.25)] transition-all"
                                 />
                             </div>
 
@@ -227,14 +246,14 @@ function LoginPage() {
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     required
-                                    className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                                    className="bg-dark-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 focus:shadow-[0_0_20px_rgba(14, 165, 233, 0.25)] transition-all"
                                 />
                             </div>
 
                             <button
                                 type="submit"
                                 disabled={isPending}
-                                className="btn-primary w-full py-3 mt-2 text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="btn-primary w-full py-3 mt-2 text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-[0_0_30px_rgba(14, 165, 233, 0.35)] hover:scale-[1.01] transition-all duration-300"
                             >
                                 {isPending ? (
                                     <span className="flex items-center justify-center gap-2">
