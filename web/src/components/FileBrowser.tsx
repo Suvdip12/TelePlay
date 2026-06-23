@@ -51,7 +51,9 @@ export default function FileBrowser() {
         setSelectionBox,
         activeSection,
         addToast,
-        setSelectedFiles
+        setSelectedFiles,
+        setTriggerUpload,
+        setTriggerUploadFromLink
     } = useAppStore();
 
     // Pagination state
@@ -121,6 +123,20 @@ export default function FileBrowser() {
     const [uploadQueue, setUploadQueue] = useState<{ file: globalThis.File; progress: UploadProgress | null; status: 'pending' | 'uploading' | 'done' | 'error'; error?: string }[]>([]);
     const [showUploadPanel, setShowUploadPanel] = useState(false);
     const dragCounter = useRef(0);
+
+    // Set up the callbacks so Sidebar can trigger them
+    useEffect(() => {
+        setTriggerUpload(() => {
+            fileInputRef.current?.click();
+        });
+        setTriggerUploadFromLink(() => {
+            setShowLinkUpload(true);
+        });
+        return () => {
+            setTriggerUpload(null);
+            setTriggerUploadFromLink(null);
+        };
+    }, [setTriggerUpload, setTriggerUploadFromLink]);
 
     // handle refresh
     const handleRefresh = useCallback(() => {
@@ -690,31 +706,7 @@ export default function FileBrowser() {
                             </button>
                         )}
 
-                        {activeSection === 'files' && (
-                            <>
-                                <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="ml-2 btn-secondary py-1.5 px-3 text-sm flex items-center gap-2"
-                                >
-                                    <Upload className="w-4 h-4" />
-                                    <span className="hidden sm:inline">Upload</span>
-                                </button>
-                                <button
-                                    onClick={() => setShowLinkUpload(true)}
-                                    className="ml-2 btn-secondary py-1.5 px-3 text-sm flex items-center gap-2 bg-primary-500/10 text-primary-300 border-primary-500/20 hover:bg-primary-500/20"
-                                >
-                                    <Clipboard className="w-4 h-4" />
-                                    <span className="hidden sm:inline">Upload from Link</span>
-                                </button>
-                                <button
-                                    onClick={() => setShowNewFolder(true)}
-                                    className="btn-primary py-1.5 px-3 text-sm flex items-center gap-2 shadow-lg shadow-primary-500/20"
-                                >
-                                    <FolderPlus className="w-4 h-4" />
-                                    <span className="hidden sm:inline">New Folder</span>
-                                </button>
-                            </>
-                        )}
+
                         <input
                             ref={fileInputRef}
                             type="file"

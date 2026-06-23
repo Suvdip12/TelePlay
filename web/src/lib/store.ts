@@ -81,6 +81,12 @@ interface AppState {
     // Drag Selection Box
     selectionBox: { x1: number; y1: number; x2: number; y2: number; active: boolean } | null;
     setSelectionBox: (box: { x1: number; y1: number; x2: number; y2: number; active: boolean } | null) => void;
+
+    // Trigger actions from Sidebar
+    triggerUpload: (() => void) | null;
+    setTriggerUpload: (fn: (() => void) | null) => void;
+    triggerUploadFromLink: (() => void) | null;
+    setTriggerUploadFromLink: (fn: (() => void) | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -192,4 +198,10 @@ export const useAppStore = create<AppState>((set) => ({
     // Drag Selection Box
     selectionBox: null,
     setSelectionBox: (box) => set({ selectionBox: box }),
+
+    // Trigger actions from Sidebar
+    triggerUpload: null,
+    setTriggerUpload: (fn) => set({ triggerUpload: fn }),
+    triggerUploadFromLink: null,
+    setTriggerUploadFromLink: (fn) => set({ triggerUploadFromLink: fn }),
 }));

@@ -1,4 +1,4 @@
-import { Files, Clock, PlayCircle, LogOut, HardDrive, X } from 'lucide-react';
+import { Files, Clock, PlayCircle, LogOut, HardDrive, X, Upload, Clipboard, FolderPlus } from 'lucide-react';
 import logo from '../assets/logo.svg';
 import { useAppStore } from '../lib/store';
 import { useStorageStats, formatFileSize, useNeonAuthUrl } from '../lib/api';
@@ -11,8 +11,42 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
-    const { activeSection, setActiveSection } = useAppStore();
+    const { 
+        activeSection, 
+        setActiveSection,
+        setShowNewFolder,
+        triggerUpload,
+        triggerUploadFromLink
+    } = useAppStore();
     const { data: storage } = useStorageStats();
+
+    const handleNewFolder = () => {
+        if (activeSection !== 'files') {
+            setActiveSection('files');
+        }
+        setShowNewFolder(true);
+        onClose();
+    };
+
+    const handleUpload = () => {
+        if (activeSection !== 'files') {
+            setActiveSection('files');
+        }
+        onClose();
+        setTimeout(() => {
+            if (triggerUpload) triggerUpload();
+        }, 100);
+    };
+
+    const handleUploadFromLink = () => {
+        if (activeSection !== 'files') {
+            setActiveSection('files');
+        }
+        onClose();
+        setTimeout(() => {
+            if (triggerUploadFromLink) triggerUploadFromLink();
+        }, 100);
+    };
     const { data: neonAuthUrl } = useNeonAuthUrl();
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -91,6 +125,34 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <NavItem section="files" icon={Files} label="My Files" />
                     <NavItem section="recent" icon={Clock} label="Recently Added" />
                     <NavItem section="continue_watching" icon={PlayCircle} label="Continue Watching" />
+                    
+                    {/* Actions */}
+                    <div className="pt-4 mt-4 border-t border-white/[0.06] space-y-2">
+                        <div className="px-3 mb-2 text-xs font-semibold text-dark-500 uppercase tracking-wider">
+                            Actions
+                        </div>
+                        <button
+                            onClick={handleUpload}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-white bg-primary-600 hover:bg-primary-700 transition-all font-medium shadow-md shadow-primary-500/10 active:scale-[0.98]"
+                        >
+                            <Upload className="w-5 h-5" />
+                            <span>Upload File</span>
+                        </button>
+                        <button
+                            onClick={handleUploadFromLink}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-primary-400 bg-primary-600/10 hover:bg-primary-600/20 border border-primary-500/20 transition-all font-medium active:scale-[0.98]"
+                        >
+                            <Clipboard className="w-5 h-5" />
+                            <span>Upload from Link</span>
+                        </button>
+                        <button
+                            onClick={handleNewFolder}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-dark-300 hover:text-white hover:bg-white/[0.05] border border-white/[0.06] transition-all font-medium active:scale-[0.98]"
+                        >
+                            <FolderPlus className="w-5 h-5" />
+                            <span>New Folder</span>
+                        </button>
+                    </div>
                 </nav>
 
                 {/* Storage Info */}
