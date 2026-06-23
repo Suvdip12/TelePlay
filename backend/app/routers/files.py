@@ -512,19 +512,42 @@ async def upload_custom_thumbnail(
     The thumbnail is saved temporarily, uploaded to the Telegram storage channel as a photo,
     then the temp file is deleted and the file's thumbnail_file_id is updated.
     """
+    log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "error_log.txt")
+    
+    def log_debug(msg: str):
+        logger.info(msg)
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        except Exception:
+            pass
+
+    try:
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("=== THUMBNAIL UPLOAD START ===\n")
+    except Exception:
+        pass
+
+    log_debug(f"Starting custom thumbnail upload for file_id={file_id}, user_id={current_user.id}")
+
     # Fetch file from database
     result = await db.execute(
         select(File).where(File.id == file_id, File.user_id == current_user.id)
     )
     db_file = result.scalar_one_or_none()
     if not db_file:
+        log_debug(f"Error: File with id {file_id} not found for this user")
         raise HTTPException(status_code=404, detail="File not found")
         
     if not file.filename:
+        log_debug("Error: No thumbnail file filename provided")
         raise HTTPException(status_code=400, detail="No thumbnail file provided")
         
+    log_debug(f"Received file: name={file.filename}, content_type={file.content_type}")
+
     # Check mime type is image
     if not file.content_type or not file.content_type.startswith("image/"):
+        log_debug(f"Error: content_type {file.content_type} is not an image")
         raise HTTPException(status_code=400, detail="Uploaded file must be an image")
         
     # Save the uploaded thumbnail to a temp file
@@ -532,6 +555,7 @@ async def upload_custom_thumbnail(
     os.makedirs(tmp_dir, exist_ok=True)
     safe_suffix = sanitize_filename(file.filename)
     tmp_path = os.path.join(tmp_dir, f"thumb_custom_{secrets.token_hex(8)}_{safe_suffix}")
+    log_debug(f"Saving uploaded file to temp path: {tmp_path}")
     
     try:
         # Stream file to disk
@@ -543,53 +567,97 @@ async def upload_custom_thumbnail(
                     break
                 file_size += len(chunk)
                 if file_size > 10 * 1024 * 1024:  # Limit thumbnail to 10MB
+                    log_debug(f"Error: File size {file_size} exceeds 10MB limit")
                     raise HTTPException(status_code=413, detail="Thumbnail too large. Maximum size is 10MB.")
                 f.write(chunk)
                 
         if file_size == 0:
+            log_debug("Error: File size is 0 bytes")
             raise HTTPException(status_code=400, detail="Empty file")
             
-        logger.info(f"Uploading custom thumbnail for file {file_id} ({file_size} bytes) to Telegram")
+        log_debug(f"File saved to temp path. Size={file_size} bytes. Now uploading to Telegram storage channel {settings.telegram_storage_channel_id}...")
         
         # Upload photo to Telegram channel
-        sent_msg = await tg_client.send_photo(
-            settings.telegram_storage_channel_id,
-            tmp_path,
-        )
+        try:
+            sent_msg = await tg_client.send_photo(
+                settings.telegram_storage_channel_id,
+                tmp_path,
+            )
+            log_debug("Successfully sent_photo call to Telegram client.")
+        except Exception as tg_err:
+            log_debug(f"tg_client.send_photo raised an exception: {tg_err}")
+            import traceback
+            log_debug(traceback.format_exc())
+            raise
         
-        if not sent_msg or not sent_msg.photo:
-            raise HTTPException(status_code=500, detail="Failed to upload thumbnail to Telegram")
+        if not sent_msg:
+            log_debug("Error: sent_msg from tg_client.send_photo is None/empty")
+            raise HTTPException(status_code=500, detail="Failed to upload thumbnail to Telegram (empty response)")
             
-        # Get photo file ID (highest resolution is the last item)
-        thumbnail_file_id = sent_msg.photo[-1].file_id
+        log_debug(f"sent_msg details: type={type(sent_msg)}, id={sent_msg.id}")
+        
+        if not sent_msg.photo:
+            log_debug(f"Error: sent_msg has no photo object. Attributes: {dir(sent_msg)}")
+            raise HTTPException(status_code=500, detail="Failed to upload thumbnail to Telegram (no photo object in response)")
+            
+        # Get photo file ID (highest resolution)
+        # Store as "msg_id:file_id" so we can re-fetch the message later
+        # to avoid FileReferenceExpired errors on the file_id
+        # Photo object has sizes/thumbs list — use highest resolution
+        photo = sent_msg.photo
+        log_debug(f"sent_msg.photo details: type={type(photo)}, attributes={dir(photo)}")
+        
+        try:
+            if hasattr(photo, 'sizes') and photo.sizes:
+                log_debug(f"photo has sizes attribute, count={len(photo.sizes)}")
+                photo_file_id = photo.sizes[-1].file_id
+            elif hasattr(photo, 'thumbs') and photo.thumbs:
+                log_debug(f"photo has thumbs attribute, count={len(photo.thumbs)}")
+                photo_file_id = photo.thumbs[-1].file_id
+            elif hasattr(photo, 'file_id'):
+                log_debug("photo has file_id attribute directly")
+                photo_file_id = photo.file_id
+            else:
+                # Fallback: try indexing (some Pyrogram versions support Photo[-1])
+                log_debug("photo has no standard size/thumb/file_id attributes. Trying indexing fallback...")
+                photo_file_id = photo[-1].file_id
+            log_debug(f"Extracted photo_file_id: {photo_file_id}")
+        except Exception as parse_err:
+            log_debug(f"Failed to parse photo object attributes: {parse_err}")
+            import traceback
+            log_debug(traceback.format_exc())
+            raise
+            
+        thumbnail_ref = f"{sent_msg.id}:{photo_file_id}"
+        log_debug(f"Formed thumbnail_ref: {thumbnail_ref}. Updating DB...")
         
         # Update database
-        db_file.thumbnail_file_id = thumbnail_file_id
+        db_file.thumbnail_file_id = thumbnail_ref
         await db.commit()
+        log_debug("DB committed successfully.")
         
         # Re-fetch with relationships for the response
         result = await db.execute(
             select(File).where(File.id == file_id).options(selectinload(File.watch_progress))
         )
         db_file = result.scalar_one()
+        log_debug("Re-fetched file from DB successfully. Returning response.")
         
         return FileResponse(**add_urls_to_file(db_file))
         
     except HTTPException:
+        log_debug("HTTPException raised and re-raised")
         raise
     except Exception as e:
-        logger.error(f"Thumbnail upload failed: {e}", exc_info=True)
-        try:
-            import traceback
-            with open("error_log.txt", "w") as f:
-                traceback.print_exc(file=f)
-        except Exception:
-            pass
+        log_debug(f"Exception caught in outer handler: {e}")
+        import traceback
+        log_debug(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to upload thumbnail: {str(e)}")
     finally:
         # Clean up temp file
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+            log_debug("Cleaned up temporary thumbnail file.")
 
 
 @router.delete("/{file_id}")

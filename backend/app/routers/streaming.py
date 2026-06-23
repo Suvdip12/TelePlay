@@ -128,25 +128,52 @@ async def get_thumbnail(
     if not file or not file.thumbnail_file_id:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     
-    try:
-        # First try downloading the file.thumbnail_file_id directly.
-        # This is extremely fast and natively handles custom user-uploaded thumbnails.
+    # Parse thumbnail_file_id — new format is "msg_id:file_id" for custom thumbnails
+    thumb_ref = file.thumbnail_file_id
+    thumb_msg_id = None
+    thumb_file_id = thumb_ref
+    
+    if ":" in thumb_ref:
+        parts = thumb_ref.split(":", 1)
         try:
-            thumb_bytes = await tg_client.download_media(file.thumbnail_file_id, in_memory=True)
+            thumb_msg_id = int(parts[0])
+            thumb_file_id = parts[1]
+        except (ValueError, IndexError):
+            # Not in msg_id:file_id format, treat entire string as file_id
+            thumb_file_id = thumb_ref
+    
+    try:
+        # Strategy 1: Try downloading via file_id directly (works for video/doc thumbs)
+        try:
+            thumb_bytes = await tg_client.download_media(thumb_file_id, in_memory=True)
             if thumb_bytes:
                 return Response(
                     content=thumb_bytes.getvalue(),
                     media_type="image/jpeg"
                 )
         except Exception as e:
-            logger.warning(f"Direct thumbnail download failed for file {file_id}: {e}")
-            
-        # Fallback: Get the message and download thumbnail
+            logger.warning(f"Direct file_id download failed for file {file_id}: {e}")
+        
+        # Strategy 2: If we have a custom thumbnail message ID, fetch that message
+        if thumb_msg_id:
+            try:
+                thumb_message = await get_message_from_channel(thumb_msg_id)
+                if thumb_message and thumb_message.photo:
+                    thumb_bytes = await tg_client.download_media(thumb_message, in_memory=True)
+                    if thumb_bytes:
+                        return Response(
+                            content=thumb_bytes.getvalue(),
+                            media_type="image/jpeg"
+                        )
+            except Exception as e:
+                logger.warning(f"Custom thumbnail message download failed for file {file_id}: {e}")
+
+        # Strategy 3: Fallback — get the original file's message and extract its embedded thumbnail
         message = await get_message_from_channel(file.channel_message_id)
         if not message:
             raise HTTPException(status_code=404, detail="Message not found")
 
-        # Extract thumbnail object
+        # Extract thumbnail object from the original media message
         thumbnail = None
         if message.video and message.video.thumbs:
             thumbnail = message.video.thumbs[0]
@@ -155,27 +182,29 @@ async def get_thumbnail(
         elif message.audio and message.audio.thumbs:
             thumbnail = message.audio.thumbs[0]
         elif message.photo:
-            thumbnail = message.photo[-1]  # Use best quality photo
+            thumbnail = message.photo
             
         if not thumbnail:
             raise HTTPException(status_code=404, detail="Thumbnail not found in message")
         
         # Download thumbnail to memory
-        thumb_bytes = await tg_client.download_media(thumbnail.file_id, in_memory=True)
+        if hasattr(thumbnail, 'file_id'):
+            thumb_bytes = await tg_client.download_media(thumbnail.file_id, in_memory=True)
+        else:
+            thumb_bytes = await tg_client.download_media(message, in_memory=True)
+        
+        if not thumb_bytes:
+            raise HTTPException(status_code=404, detail="Could not download thumbnail")
         
         return Response(
             content=thumb_bytes.getvalue(),
             media_type="image/jpeg"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         # Log error internally, don't expose details to users
-        logger.error(f"Thumbnail error for file {file_id}: {e}")
-        try:
-            import traceback
-            with open("error_log.txt", "w") as f:
-                traceback.print_exc(file=f)
-        except Exception:
-            pass
+        logger.error(f"Thumbnail error for file {file_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to get thumbnail")
 
 

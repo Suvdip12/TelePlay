@@ -32,7 +32,8 @@ export default function GlobalContextMenu() {
                 });
                 addToast('Thumbnail updated successfully!', 'success');
             } catch (error: any) {
-                addToast(error?.message || 'Failed to upload thumbnail', 'error');
+                const errMsg = error?.response?.data?.detail || error?.message || 'Failed to upload thumbnail';
+                addToast(errMsg, 'error');
             }
         }
         if (e.target) {

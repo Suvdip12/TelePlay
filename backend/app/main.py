@@ -20,6 +20,15 @@ logging.basicConfig(
 )
 logging.getLogger("pyrogram").setLevel(logging.INFO)
 
+# Add file handler to root logger
+try:
+    log_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app_errors.log")
+    file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+    logging.getLogger().addHandler(file_handler)
+except Exception as e:
+    print("Failed to setup file logging:", e)
+
 from .config import get_settings
 from .database import init_db
 from .telegram import start_telegram_client, stop_telegram_client
